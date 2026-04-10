@@ -97,55 +97,37 @@ function downloadBlob(blob, filename) {
   }, 500);
 }
 
-// ──── Report: Excel ────
+// ──── Report: Excel (CSV) ────
 function generateExcelReport(entries, period, periodLabel) {
   const filtered = entries.filter(period);
-  const income = filtered.filter(e => e.type === "수입");
-  const expense = filtered.filter(e => e.type === "지출");
+  const income = filtered.filter(e => e.type === "수입").sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const expense = filtered.filter(e => e.type === "지출").sort((a,b)=>String(a.date).localeCompare(String(b.date)));
   const totalIncome = income.reduce((s,e) => s + e.amount, 0);
   const totalExpense = expense.reduce((s,e) => s + e.amount, 0);
   const incCats = {}; income.forEach(e => { incCats[e.category] = (incCats[e.category]||0) + e.amount; });
   const expCats = {}; expense.forEach(e => { expCats[e.category] = (expCats[e.category]||0) + e.amount; });
-  const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const esc = s => '"' + String(s||"").replace(/"/g,'""') + '"';
 
-  let xml = `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-<Styles>
- <Style ss:ID="title"><Font ss:Size="16" ss:Bold="1"/></Style>
- <Style ss:ID="header"><Font ss:Size="11" ss:Bold="1"/><Interior ss:Color="#E8DDD0" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center"/></Style>
- <Style ss:ID="num"><NumberFormat ss:Format="#,##0"/><Alignment ss:Horizontal="Right"/></Style>
- <Style ss:ID="incomeNum"><NumberFormat ss:Format="#,##0"/><Font ss:Color="#15713A" ss:Bold="1"/><Alignment ss:Horizontal="Right"/></Style>
- <Style ss:ID="expenseNum"><NumberFormat ss:Format="#,##0"/><Font ss:Color="#B91C1C" ss:Bold="1"/><Alignment ss:Horizontal="Right"/></Style>
- <Style ss:ID="sectionHead"><Font ss:Size="13" ss:Bold="1"/><Interior ss:Color="#F0FAF0" ss:Pattern="Solid"/></Style>
- <Style ss:ID="sectionHeadExp"><Font ss:Size="13" ss:Bold="1"/><Interior ss:Color="#FEF5F5" ss:Pattern="Solid"/></Style>
- <Style ss:ID="totalRow"><Font ss:Bold="1" ss:Size="12"/><Interior ss:Color="#FAF5ED" ss:Pattern="Solid"/></Style>
- <Style ss:ID="totalNum"><NumberFormat ss:Format="#,##0"/><Font ss:Bold="1" ss:Size="12"/><Interior ss:Color="#FAF5ED" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right"/></Style>
-</Styles>
-<Worksheet ss:Name="헌금출납부"><Table>
- <Column ss:Width="100"/><Column ss:Width="60"/><Column ss:Width="120"/><Column ss:Width="120"/><Column ss:Width="150"/>
- <Row><Cell ss:StyleID="title"><Data ss:Type="String">재송성결교회 헌금 출납부</Data></Cell></Row>
- <Row><Cell><Data ss:Type="String">${esc(periodLabel)} 보고서 | 출력일: ${getToday()}</Data></Cell></Row>
- <Row></Row>
- <Row ss:StyleID="totalRow">
-  <Cell ss:StyleID="totalRow"><Data ss:Type="String">총 수입</Data></Cell><Cell ss:StyleID="totalNum"><Data ss:Type="Number">${totalIncome}</Data></Cell>
-  <Cell ss:StyleID="totalRow"><Data ss:Type="String">총 지출</Data></Cell><Cell ss:StyleID="totalNum"><Data ss:Type="Number">${totalExpense}</Data></Cell>
-  <Cell ss:StyleID="totalRow"><Data ss:Type="String">잔액</Data></Cell><Cell ss:StyleID="totalNum"><Data ss:Type="Number">${totalIncome-totalExpense}</Data></Cell>
- </Row><Row></Row>
- <Row><Cell ss:StyleID="sectionHead" ss:MergeAcross="4"><Data ss:Type="String">▸ 수입 내역</Data></Cell></Row>
- <Row><Cell ss:StyleID="header"><Data ss:Type="String">날짜</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">구분</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">헌금 종류</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">금액</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">메모</Data></Cell></Row>`;
-  income.sort((a,b)=>String(a.date).localeCompare(String(b.date))).forEach(e=>{xml+=`\n <Row><Cell><Data ss:Type="String">${esc(e.date)}</Data></Cell><Cell><Data ss:Type="String">수입</Data></Cell><Cell><Data ss:Type="String">${esc(e.category)}</Data></Cell><Cell ss:StyleID="num"><Data ss:Type="Number">${e.amount}</Data></Cell><Cell><Data ss:Type="String">${esc(e.memo)}</Data></Cell></Row>`;});
-  xml+=`\n <Row></Row><Row><Cell ss:StyleID="header"><Data ss:Type="String">헌금 종류별 소계</Data></Cell></Row>`;
-  Object.entries(incCats).sort((a,b)=>b[1]-a[1]).forEach(([c,a])=>{xml+=`\n <Row><Cell><Data ss:Type="String">${esc(c)}</Data></Cell><Cell ss:StyleID="incomeNum"><Data ss:Type="Number">${a}</Data></Cell></Row>`;});
-  xml+=`\n <Row><Cell ss:StyleID="totalRow"><Data ss:Type="String">수입 합계</Data></Cell><Cell ss:StyleID="totalNum"><Data ss:Type="Number">${totalIncome}</Data></Cell></Row>`;
-  xml+=`\n <Row></Row><Row><Cell ss:StyleID="sectionHeadExp" ss:MergeAcross="4"><Data ss:Type="String">▸ 지출 내역</Data></Cell></Row>
- <Row><Cell ss:StyleID="header"><Data ss:Type="String">날짜</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">구분</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">지출 항목</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">금액</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">메모</Data></Cell></Row>`;
-  expense.sort((a,b)=>String(a.date).localeCompare(String(b.date))).forEach(e=>{xml+=`\n <Row><Cell><Data ss:Type="String">${esc(e.date)}</Data></Cell><Cell><Data ss:Type="String">지출</Data></Cell><Cell><Data ss:Type="String">${esc(e.category)}</Data></Cell><Cell ss:StyleID="num"><Data ss:Type="Number">${e.amount}</Data></Cell><Cell><Data ss:Type="String">${esc(e.memo)}</Data></Cell></Row>`;});
-  xml+=`\n <Row></Row><Row><Cell ss:StyleID="header"><Data ss:Type="String">지출 항목별 소계</Data></Cell></Row>`;
-  Object.entries(expCats).sort((a,b)=>b[1]-a[1]).forEach(([c,a])=>{xml+=`\n <Row><Cell><Data ss:Type="String">${esc(c)}</Data></Cell><Cell ss:StyleID="expenseNum"><Data ss:Type="Number">${a}</Data></Cell></Row>`;});
-  xml+=`\n <Row><Cell ss:StyleID="totalRow"><Data ss:Type="String">지출 합계</Data></Cell><Cell ss:StyleID="totalNum"><Data ss:Type="Number">${totalExpense}</Data></Cell></Row>`;
-  xml+=`\n</Table></Worksheet></Workbook>`;
-  downloadBlob(new Blob([xml],{type:"application/vnd.ms-excel;charset=utf-8;"}),`재송성결교회_보고서_${periodLabel}.xls`);
+  let csv = "\uFEFF";
+  csv += "재송성결교회 헌금 출납부\n";
+  csv += `${periodLabel} 보고서,출력일:,${getToday()}\n\n`;
+  csv += `총 수입,${totalIncome},총 지출,${totalExpense},잔액,${totalIncome-totalExpense}\n\n`;
+
+  csv += "▸ 수입 내역\n";
+  csv += "날짜,구분,헌금 종류,금액,메모\n";
+  income.forEach(e => { csv += `${e.date},수입,${esc(e.category)},${e.amount},${esc(e.memo)}\n`; });
+  csv += `\n수입 종류별 소계\n`;
+  Object.entries(incCats).sort((a,b)=>b[1]-a[1]).forEach(([c,a]) => { csv += `${esc(c)},${a}\n`; });
+  csv += `수입 합계,${totalIncome}\n\n`;
+
+  csv += "▸ 지출 내역\n";
+  csv += "날짜,구분,지출 항목,금액,메모\n";
+  expense.forEach(e => { csv += `${e.date},지출,${esc(e.category)},${e.amount},${esc(e.memo)}\n`; });
+  csv += `\n지출 항목별 소계\n`;
+  Object.entries(expCats).sort((a,b)=>b[1]-a[1]).forEach(([c,a]) => { csv += `${esc(c)},${a}\n`; });
+  csv += `지출 합계,${totalExpense}\n`;
+
+  downloadBlob(new Blob([csv],{type:"text/csv;charset=utf-8;"}),`재송성결교회_보고서_${periodLabel}.csv`);
 }
 
 // ──── Report: PDF ────
