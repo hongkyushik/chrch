@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>재송성결교회 헌금 출납부</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✝</text></svg>">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="헌금출납부">
+  <meta name="theme-color" content="#3d2e1e">
+  <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIuyerOyGseyEseqyiOq1kO2ajCDtuIzquIgg7Lac64Kp67aAIiwKICAic2hvcnRfbmFtZSI6ICLtl4zquIjstpzrgqnrtoBfIiwKICAic3RhcnRfdXJsIjogIi4iLAogICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiNmN2YxZTgiLAogICJ0aGVtZV9jb2xvciI6ICIjM2QyZTFlIiwKICAiaWNvbnMiOiBbXQp9">
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    
+// ──── Supabase Config ────
+const SUPABASE_URL = "https://apwsupveudxzvywmlfuq.supabase.co";
+const SUPABASE_KEY = "sb_publishable_v4lXHhMsWPDgUaNzbckRyA_Tr-dyEAs";
+const TABLE = "offerings";
+
+const INCOME_CATEGORIES = ["십일조","감사헌금","주일헌금","건축헌금","선교헌금","구제헌금","절기헌금","특별헌금","기타"];
+
+function fmt(n) { if (!n && n !== 0) return ""; return Number(n).toLocaleString("ko-KR"); }
+function getToday() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+function getMK(d) { return String(d).slice(0,7); }
+function getYK(d) { return String(d).slice(0,4); }
+
+// ──── Supabase REST API helpers ────
+async function sbFetch(path, opts = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...opts,
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+      "Prefer": opts.prefer || "return=representation",
+      ...opts.headers,
+    },
+  });
+  if (!res.ok) { const t = await res.text(); throw new Error(`Supabase error: ${res.status} ${t}`); }
+  const text = await res.text();
+  return text ? JSON.parse(text) : [];
+}
+
+async function loadEntries() {
+  return await sbFetch(`${TABLE}?select=*&order=date.asc,id.asc`);
+}
+
+async function insertEntry(entry) {
+  const rows = await sbFetch(TABLE, {
+    method: "POST",
+    body: JSON.stringify(entry),
+  });
+  return rows[0];
+}
+
+async function deleteEntry(id) {
+  await sbFetch(`${TABLE}?id=eq.${id}`, { method: "DELETE", prefer: "return=minimal" });
+}
+
+async function insertMany(entries) {
+  return await sbFetch(TABLE, {
+    method: "POST",
+    body: JSON.stringify(entries),
+  });
+}
+
+async function deleteAll() {
+  await sbFetch(`${TABLE}?id=gt.0`, { method: "DELETE", prefer: "return=minimal" });
+}
+
+// ──── Export helpers ────
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+}
+
+// ──── Report: Excel ────
+function generateExcelReport(entries, period, periodLabel) {
+  const filtered = entries.filter(period);
+  const income = filtered.filter(e => e.type === "수입");
+  const expense = filtered.filter(e => e.type === "지출");
+  const totalIncome = income.reduce((s,e) => s + e.amount, 0);
+  const totalExpense = expense.reduce((s,e) => s + e.amount, 0);
+  const incCats = {}; income.forEach(e => { incCats[e.category] = (incCats[e.category]||0) + e.amount; });
+  const expCats = {}; expense.forEach(e => { expCats[e.category] = (expCats[e.category]||0) + e.amount; });
+  const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Styles>
+ <Style ss:ID="title"><Font ss:Size="16" ss:Bold="1"/></Style>
+ <Style ss:ID="header"><Font ss:Size="11" ss:Bold="1"/><Interior ss:Color="#E8DDD0" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center"/></Style>
+ <Style ss:ID="num"><NumberFormat ss:Format="#,##0"/><Alignment ss:Horizontal="Right"/></Style>
+ <Style ss:ID="incomeNum"><NumberFormat ss:Format="#,##0"/><Font ss:Color="#15713A" ss:Bold="1"/><Alignment ss:Horizontal="Right"/></Style>
+ <Style ss:ID="expenseNum"><NumberFormat ss:Format="#,##0"/><Font ss:Color="#B91C1C" ss:Bold="1"/><Alignment ss:Horizontal="Right"/></Style>
+ <Style ss:ID="sectionHead"><Font ss:Size="13" ss:Bold="1"/><Interior ss:Color="#F0FAF0" ss:Pattern="Solid"/></Style>
+ <Style ss:ID="sectionHeadExp"><Font ss:Size="13" ss:Bold="1"/><Interior ss:Color="#FEF5F5" ss:Pattern="Solid"/></Style>
+ <Style ss:ID="totalRow"><Font ss:Bold="1" ss:Size="12"/><Interior ss:Color="#FAF5ED" ss:Pattern="Solid"/></Style>
+ <Style ss:ID="totalNum"><NumberFormat ss:Format="#,##0"/><Font ss:Bold="1" ss:Size="12"/><Interior ss:Color="#FAF5ED" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right"/></Style>
+</Styles>
+<Worksheet ss:Name="헌금출납부"><Table>
+ <Column ss:Width="100"/><Column ss:Width="60"/><Column ss:Width="120"/><Column ss:Width="120"/><Column ss:Width="150"/>
+ <Row><Cell ss:StyleID="title"><Data ss:Type="String">재송성결교회 헌금 출납부</Data></Cell></Row>
+ <Row><Cell><Data ss:Type="String">${esc(periodLabel)} 보고서 | 출력일: ${getToday()}</Data></Cell></Row>
+ <Row></Row>
+ <Row ss:StyleID="totalRow">
+  <Cell ss:StyleID="totalRow"><Data ss:Type="String">총 수입</Data></Cell><Cell ss:StyleID="totalNum"><Data ss:Type="Number">${totalIncome}</Data></Cell>
+  <Cell ss:StyleID="totalRow"><Data ss:Type="String">총 지출</Data></Cell><Cell ss:StyleID="totalNum"><Data ss:Type="Number">${totalExpense}</Data></Cell>
+  <Cell ss:StyleID="totalRow"><Data ss:Type="String">잔액</Data></Cell><Cell ss:StyleID="totalNum"><Data ss:Type="Number">${totalIncome-totalExpense}</Data></Cell>
+ </Row><Row></Row>
+ <Row><Cell ss:StyleID="sectionHead" ss:MergeAcross="4"><Data ss:Type="String">▸ 수입 내역</Data></Cell></Row>
+ <Row><Cell ss:StyleID="header"><Data ss:Type="String">날짜</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">구분</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">헌금 종류</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">금액</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">메모</Data></Cell></Row>`;
+  income.sort((a,b)=>String(a.date).localeCompare(String(b.date))).forEach(e=>{xml+=`\n <Row><Cell><Data ss:Type="String">${esc(e.date)}</Data></Cell><Cell><Data ss:Type="String">수입</Data></Cell><Cell><Data ss:Type="String">${esc(e.category)}</Data></Cell><Cell ss:StyleID="num"><Data ss:Type="Number">${e.amount}</Data></Cell><Cell><Data ss:Type="String">${esc(e.memo)}</Data></Cell></Row>`;});
+  xml+=`\n <Row></Row><Row><Cell ss:StyleID="header"><Data ss:Type="String">헌금 종류별 소계</Data></Cell></Row>`;
+  Object.entries(incCats).sort((a,b)=>b[1]-a[1]).forEach(([c,a])=>{xml+=`\n <Row><Cell><Data ss:Type="String">${esc(c)}</Data></Cell><Cell ss:StyleID="incomeNum"><Data ss:Type="Number">${a}</Data></Cell></Row>`;});
+  xml+=`\n <Row><Cell ss:StyleID="totalRow"><Data ss:Type="String">수입 합계</Data></Cell><Cell ss:StyleID="totalNum"><Data ss:Type="Number">${totalIncome}</Data></Cell></Row>`;
+  xml+=`\n <Row></Row><Row><Cell ss:StyleID="sectionHeadExp" ss:MergeAcross="4"><Data ss:Type="String">▸ 지출 내역</Data></Cell></Row>
+ <Row><Cell ss:StyleID="header"><Data ss:Type="String">날짜</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">구분</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">지출 항목</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">금액</Data></Cell><Cell ss:StyleID="header"><Data ss:Type="String">메모</Data></Cell></Row>`;
+  expense.sort((a,b)=>String(a.date).localeCompare(String(b.date))).forEach(e=>{xml+=`\n <Row><Cell><Data ss:Type="String">${esc(e.date)}</Data></Cell><Cell><Data ss:Type="String">지출</Data></Cell><Cell><Data ss:Type="String">${esc(e.category)}</Data></Cell><Cell ss:StyleID="num"><Data ss:Type="Number">${e.amount}</Data></Cell><Cell><Data ss:Type="String">${esc(e.memo)}</Data></Cell></Row>`;});
+  xml+=`\n <Row></Row><Row><Cell ss:StyleID="header"><Data ss:Type="String">지출 항목별 소계</Data></Cell></Row>`;
+  Object.entries(expCats).sort((a,b)=>b[1]-a[1]).forEach(([c,a])=>{xml+=`\n <Row><Cell><Data ss:Type="String">${esc(c)}</Data></Cell><Cell ss:StyleID="expenseNum"><Data ss:Type="Number">${a}</Data></Cell></Row>`;});
+  xml+=`\n <Row><Cell ss:StyleID="totalRow"><Data ss:Type="String">지출 합계</Data></Cell><Cell ss:StyleID="totalNum"><Data ss:Type="Number">${totalExpense}</Data></Cell></Row>`;
+  xml+=`\n</Table></Worksheet></Workbook>`;
+  downloadBlob(new Blob([xml],{type:"application/vnd.ms-excel;charset=utf-8;"}),`재송성결교회_보고서_${periodLabel}.xls`);
+}
+
+// ──── Report: PDF ────
+function generatePDFReport(entries, period, periodLabel) {
+  const filtered = entries.filter(period);
+  const income = filtered.filter(e=>e.type==="수입").sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const expense = filtered.filter(e=>e.type==="지출").sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const totalIncome = income.reduce((s,e)=>s+e.amount,0);
+  const totalExpense = expense.reduce((s,e)=>s+e.amount,0);
+  const balance = totalIncome-totalExpense;
+  const incCats={}; income.forEach(e=>{incCats[e.category]=(incCats[e.category]||0)+e.amount;});
+  const expCats={}; expense.forEach(e=>{expCats[e.category]=(expCats[e.category]||0)+e.amount;});
+  const esc=s=>String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const incRows=income.map(e=>`<tr><td>${esc(e.date)}</td><td>${esc(e.category)}</td><td class="r">${fmt(e.amount)}</td><td>${esc(e.memo)}</td></tr>`).join("");
+  const expRows=expense.map(e=>`<tr><td>${esc(e.date)}</td><td>${esc(e.category)}</td><td class="r">${fmt(e.amount)}</td><td>${esc(e.memo)}</td></tr>`).join("");
+  const incCatRows=Object.entries(incCats).sort((a,b)=>b[1]-a[1]).map(([c,a])=>`<tr><td>${esc(c)}</td><td class="r g">${fmt(a)}</td></tr>`).join("");
+  const expCatRows=Object.entries(expCats).sort((a,b)=>b[1]-a[1]).map(([c,a])=>`<tr><td>${esc(c)}</td><td class="r rd">${fmt(a)}</td></tr>`).join("");
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>재송성결교회 헌금 출납부 보고서</title>
+<style>@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&family=Nanum+Myeongjo:wght@400;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Noto Sans KR',sans-serif;color:#2c2418;padding:40px;max-width:800px;margin:0 auto;font-size:12px}
+h1{font-family:'Nanum Myeongjo',serif;font-size:22px;text-align:center;margin-bottom:4px}.sub{text-align:center;color:#8b7a65;font-size:11px;margin-bottom:24px;letter-spacing:1px}
+.summary{display:flex;justify-content:center;gap:32px;margin-bottom:28px;padding:16px;background:#faf5ed;border-radius:8px;border:1px solid #d4c9b8}.summary div{text-align:center}
+.summary .label{font-size:11px;color:#8b7a65;font-weight:600}.summary .val{font-size:18px;font-weight:800;margin-top:2px}.g{color:#15713a}.rd{color:#b91c1c}
+.section{font-family:'Nanum Myeongjo',serif;font-size:15px;font-weight:700;margin:24px 0 10px;padding:8px 12px;border-radius:6px}
+.sec-in{background:#f0faf0;color:#2e7d32;border-left:4px solid #4caf50}.sec-ex{background:#fef5f5;color:#c62828;border-left:4px solid #e57373}
+.sec-sum{background:#faf5ed;color:#5a4332;border-left:4px solid #c4a87a}table{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:12px}
+th{background:#faf5ed;color:#8b7a65;font-weight:700;font-size:11px;text-align:left;padding:8px 10px;border-bottom:2px solid #d4c9b8}
+td{padding:7px 10px;border-bottom:1px solid #ede5d8}.r{text-align:right;font-variant-numeric:tabular-nums}
+.total-row td{font-weight:800;background:#faf5ed;border-top:2px solid #d4c9b8;font-size:13px}
+.footer{margin-top:32px;text-align:center;color:#b8a890;font-size:10px;border-top:1px solid #d4c9b8;padding-top:12px}
+@media print{body{padding:20px}@page{margin:15mm}}</style></head><body>
+<h1>✝ 재송성결교회 헌금 출납부</h1><div class="sub">${esc(periodLabel)} 보고서 · 출력일: ${getToday()}</div>
+<div class="summary"><div><div class="label">총 수입</div><div class="val g">${fmt(totalIncome)}원</div></div><div><div class="label">총 지출</div><div class="val rd">${fmt(totalExpense)}원</div></div><div><div class="label">잔액</div><div class="val" style="color:${balance>=0?'#1a6b3c':'#b91c1c'}">${balance>=0?'+':''}${fmt(balance)}원</div></div></div>
+<div class="section sec-in">▸ 수입 내역 (${income.length}건)</div><table><thead><tr><th>날짜</th><th>헌금 종류</th><th style="text-align:right">금액</th><th>메모</th></tr></thead><tbody>${incRows}<tr class="total-row"><td colspan="2">수입 합계</td><td class="r g">${fmt(totalIncome)}</td><td></td></tr></tbody></table>
+<div class="section sec-sum">▸ 수입 종류별 소계</div><table><thead><tr><th>헌금 종류</th><th style="text-align:right">금액</th></tr></thead><tbody>${incCatRows}<tr class="total-row"><td>합계</td><td class="r">${fmt(totalIncome)}</td></tr></tbody></table>
+<div class="section sec-ex">▸ 지출 내역 (${expense.length}건)</div><table><thead><tr><th>날짜</th><th>지출 항목</th><th style="text-align:right">금액</th><th>메모</th></tr></thead><tbody>${expRows}<tr class="total-row"><td colspan="2">지출 합계</td><td class="r rd">${fmt(totalExpense)}</td><td></td></tr></tbody></table>
+<div class="section sec-sum">▸ 지출 항목별 소계</div><table><thead><tr><th>지출 항목</th><th style="text-align:right">금액</th></tr></thead><tbody>${expCatRows}<tr class="total-row"><td>합계</td><td class="r">${fmt(totalExpense)}</td></tr></tbody></table>
+<div class="footer">재송성결교회 헌금 출납부 · 본 보고서는 자동 생성되었습니다</div>
+<script>window.onload=()=>{window.print();}</script></body></html>`;
+  const w=window.open("","_blank","width=900,height=700");if(w){w.document.write(html);w.document.close();}else{alert("팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.");}
+}
+
+// ──── Components ────
+function NumberInput({value,onChange,placeholder,className}){
+  const[display,setDisplay]=useState(value?fmt(value):"");
+  useEffect(()=>{setDisplay(value?fmt(value):"");},[value]);
+  return <input type="text" inputMode="numeric" className={className} placeholder={placeholder} value={display}
+    onChange={e=>{const raw=e.target.value.replace(/[^0-9]/g,"");setDisplay(raw?fmt(parseInt(raw)):"");onChange(parseInt(raw)||0);}}/>;
+}
+
+function EntryForm({onAdd,saving}){
+  const[form,setForm]=useState({date:getToday(),type:"수입",category:"십일조",amount:0,memo:""});
+  const firstRef=useRef(null);
+  const handleSubmit=async()=>{
+    if(!form.category.trim()||!form.amount){alert(form.type==="수입"?"헌금 종류와 금액을 입력해주세요.":"지출 항목과 금액을 입력해주세요.");return;}
+    await onAdd({date:form.date,type:form.type,category:form.category.trim(),amount:form.amount,memo:form.memo.trim()});
+    setForm(f=>({...f,amount:0,memo:""}));firstRef.current?.focus();
+  };
+  const kd=e=>{if(e.key==="Enter")handleSubmit();};
+  const isExp=form.type==="지출";
+  return(
+    <div style={S.formCard}>
+      <div style={S.formTitle}><span style={S.formIcon}>✦</span> 새 항목 입력</div>
+      <div style={S.formGrid}>
+        <div style={S.fg}><label style={S.label}>날짜</label><input type="date" style={S.input} value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}/></div>
+        <div style={S.fg}><label style={S.label}>구분</label>
+          <div style={S.toggleRow}>{["수입","지출"].map(t=><button key={t} style={{...S.toggleBtn,...(form.type===t?t==="수입"?S.toggleIn:S.toggleOut:{})}} onClick={()=>setForm(f=>({...f,type:t,category:t==="수입"?"십일조":""}))}>{t}</button>)}</div>
+        </div>
+        <div style={S.fg}><label style={S.label}>{isExp?"지출 항목":"헌금 종류"}</label>
+          {isExp?<input ref={firstRef} type="text" style={S.input} placeholder="예: 전기세, 사례비, 교회용품" value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} onKeyDown={kd}/>
+          :<select ref={firstRef} style={S.input} value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>{INCOME_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select>}
+        </div>
+        <div style={S.fg}><label style={S.label}>금액 (원)</label><NumberInput className="num-input" value={form.amount} placeholder="0" onChange={v=>setForm(f=>({...f,amount:v}))}/></div>
+        <div style={S.fg}><label style={S.label}>메모</label><input type="text" style={S.input} placeholder="비고 사항" value={form.memo} onChange={e=>setForm(f=>({...f,memo:e.target.value}))} onKeyDown={kd}/></div>
+      </div>
+      <button style={{...S.submitBtn,opacity:saving?.5:1}} onClick={handleSubmit} disabled={saving}>{saving?"저장 중...":"＋ 등록하기"}</button>
+    </div>
+  );
+}
+
+function SummaryCards({entries,filterFn}){
+  const filtered=entries.filter(filterFn);
+  const inc=filtered.filter(e=>e.type==="수입").reduce((s,e)=>s+e.amount,0);
+  const exp=filtered.filter(e=>e.type==="지출").reduce((s,e)=>s+e.amount,0);
+  const bal=inc-exp;
+  const incCats={};filtered.filter(e=>e.type==="수입").forEach(e=>{incCats[e.category]=(incCats[e.category]||0)+e.amount;});
+  const expCats={};filtered.filter(e=>e.type==="지출").forEach(e=>{expCats[e.category]=(expCats[e.category]||0)+e.amount;});
+  const topInc=Object.entries(incCats).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  const topExp=Object.entries(expCats).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  return(
+    <div style={S.summaryRow}>
+      <div style={{...S.summaryCard,...S.incomeCard}}><div style={S.summaryLabel}>총 수입</div><div style={S.summaryAmt}>{fmt(inc)}<span style={S.won}>원</span></div><div style={S.summaryDetail}>{topInc.map(([c,a])=><span key={c} style={S.catTag}>{c} {fmt(a)}</span>)}</div></div>
+      <div style={{...S.summaryCard,...S.expenseCard}}><div style={S.summaryLabel}>총 지출</div><div style={S.summaryAmt}>{fmt(exp)}<span style={S.won}>원</span></div><div style={S.summaryDetail}>{topExp.map(([c,a])=><span key={c} style={{...S.catTag,background:"rgba(185,28,28,0.07)",color:"#b91c1c"}}>{c} {fmt(a)}</span>)}</div></div>
+      <div style={{...S.summaryCard,...S.balanceCard}}><div style={S.summaryLabel}>잔액</div><div style={{...S.summaryAmt,color:bal>=0?"#1a6b3c":"#b91c1c"}}>{bal>=0?"+":""}{fmt(bal)}<span style={S.won}>원</span></div></div>
+    </div>
+  );
+}
+
+function YearlySummary({entries,year}){
+  const ye=entries.filter(e=>getYK(e.date)===year);
+  const months=[...new Set(ye.map(e=>getMK(e.date)))].sort();
+  if(!months.length)return<div style={S.empty}><div style={S.emptyIcon}>📊</div><div style={S.emptyText}>{year}년 기록이 없습니다</div></div>;
+  const yInc=ye.filter(e=>e.type==="수입").reduce((s,e)=>s+e.amount,0);
+  const yExp=ye.filter(e=>e.type==="지출").reduce((s,e)=>s+e.amount,0);
+  return(
+    <div>
+      <div style={S.yearBar}><div style={S.yearTitle}>📊 {year}년 연간 총합</div>
+        <div style={S.yearRow}><span style={S.yearItem}><span style={{color:"#2e7d32"}}>수입</span> {fmt(yInc)}원</span><span style={S.yearDiv}>│</span><span style={S.yearItem}><span style={{color:"#b91c1c"}}>지출</span> {fmt(yExp)}원</span><span style={S.yearDiv}>│</span><span style={S.yearItem}><span style={{color:yInc-yExp>=0?"#1a6b3c":"#b91c1c",fontWeight:700}}>잔액 {yInc-yExp>=0?"+":""}{fmt(yInc-yExp)}원</span></span></div>
+      </div>
+      <div style={S.tableWrap}><table style={S.table}><thead><tr><th style={S.th}>월</th><th style={{...S.th,textAlign:"right"}}>수입</th><th style={{...S.th,textAlign:"right"}}>지출</th><th style={{...S.th,textAlign:"right"}}>잔액</th><th style={S.th}>주요 수입</th><th style={S.th}>주요 지출</th></tr></thead><tbody>
+        {months.map(m=>{const me=ye.filter(e=>getMK(e.date)===m);const mi=me.filter(e=>e.type==="수입").reduce((s,e)=>s+e.amount,0);const mx=me.filter(e=>e.type==="지출").reduce((s,e)=>s+e.amount,0);const ic={};me.filter(e=>e.type==="수입").forEach(e=>{ic[e.category]=(ic[e.category]||0)+e.amount;});const ec={};me.filter(e=>e.type==="지출").forEach(e=>{ec[e.category]=(ec[e.category]||0)+e.amount;});
+          return<tr key={m} style={S.tr}><td style={{...S.td,fontWeight:700}}>{parseInt(m.split("-")[1])}월</td><td style={{...S.td,textAlign:"right",color:"#15713a",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>+{fmt(mi)}</td><td style={{...S.td,textAlign:"right",color:"#b91c1c",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>-{fmt(mx)}</td><td style={{...S.td,textAlign:"right",fontWeight:700,fontVariantNumeric:"tabular-nums",color:mi-mx>=0?"#1a6b3c":"#b91c1c"}}>{mi-mx>=0?"+":""}{fmt(mi-mx)}</td><td style={{...S.td,fontSize:12,color:"#6b5a48"}}>{Object.entries(ic).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([c,a])=>`${c}(${fmt(a)})`).join(", ")}</td><td style={{...S.td,fontSize:12,color:"#6b5a48"}}>{Object.entries(ec).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([c,a])=>`${c}(${fmt(a)})`).join(", ")}</td></tr>;})}
+        <tr style={{...S.tr,background:"#faf5ed"}}><td style={{...S.td,fontWeight:800,color:"#5a4332"}}>합계</td><td style={{...S.td,textAlign:"right",color:"#15713a",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>+{fmt(yInc)}</td><td style={{...S.td,textAlign:"right",color:"#b91c1c",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>-{fmt(yExp)}</td><td style={{...S.td,textAlign:"right",fontWeight:800,fontVariantNumeric:"tabular-nums",color:yInc-yExp>=0?"#1a6b3c":"#b91c1c"}}>{yInc-yExp>=0?"+":""}{fmt(yInc-yExp)}</td><td style={S.td}></td><td style={S.td}></td></tr>
+      </tbody></table></div>
+    </div>
+  );
+}
+
+function LedgerTable({entries,month,onDelete}){
+  const filtered=entries.filter(e=>getMK(e.date)===month).sort((a,b)=>String(a.date).localeCompare(String(b.date))||a.id-b.id);
+  let rb=0;
+  if(!filtered.length)return<div style={S.empty}><div style={S.emptyIcon}>📖</div><div style={S.emptyText}>이번 달 기록이 없습니다</div><div style={S.emptySub}>위 양식에서 새 항목을 입력해주세요</div></div>;
+  return(
+    <div style={S.tableWrap}><table style={S.table}><thead><tr><th style={S.th}>날짜</th><th style={S.th}>구분</th><th style={S.th}>종류/항목</th><th style={{...S.th,textAlign:"right"}}>금액</th><th style={{...S.th,textAlign:"right"}}>잔액</th><th style={S.th}>메모</th><th style={{...S.th,width:40}}></th></tr></thead><tbody>
+      {filtered.map(e=>{if(e.type==="수입")rb+=e.amount;else rb-=e.amount;
+        return<tr key={e.id} style={S.tr}><td style={S.td}>{e.date}</td><td style={S.td}><span style={e.type==="수입"?S.badgeIn:S.badgeOut}>{e.type}</span></td><td style={S.td}>{e.category}</td><td style={{...S.td,textAlign:"right",fontVariantNumeric:"tabular-nums",color:e.type==="수입"?"#15713a":"#b91c1c",fontWeight:600}}>{e.type==="수입"?"+":"-"}{fmt(e.amount)}</td><td style={{...S.td,textAlign:"right",fontVariantNumeric:"tabular-nums",fontWeight:500}}>{fmt(rb)}</td><td style={{...S.td,color:"#888",fontSize:13}}>{e.memo}</td><td style={S.td}><button style={S.delBtn} onClick={()=>onDelete(e.id)} title="삭제">×</button></td></tr>;})}
+    </tbody></table></div>
+  );
+}
+
+function ReportModal({entries,onClose,viewMode,selectedMonth,selectedYear}){
+  const[reportScope,setReportScope]=useState(viewMode==="yearly"?"year":"month");
+  const[reportMonth,setReportMonth]=useState(selectedMonth);
+  const[reportYear,setReportYear]=useState(selectedYear);
+  const months=[...new Set(entries.map(e=>getMK(e.date)).concat([getToday().slice(0,7)]))].sort();
+  const years=[...new Set(entries.map(e=>getYK(e.date)).concat([getToday().slice(0,4)]))].sort();
+  const getPeriod=()=>{if(reportScope==="month")return{fn:e=>getMK(e.date)===reportMonth,label:reportMonth.replace("-","년 ")+"월"};if(reportScope==="year")return{fn:e=>getYK(e.date)===reportYear,label:reportYear+"년"};return{fn:()=>true,label:"전체"};};
+  return(
+    <div style={S.modalOverlay} onClick={onClose}><div style={S.modal} onClick={e=>e.stopPropagation()}>
+      <div style={S.modalTitle}>📋 보고서 생성</div><div style={S.modalSub}>기간을 선택하고 원하는 형식으로 내려받으세요</div>
+      <div style={S.modalSection}><label style={S.label}>보고서 범위</label><div style={{display:"flex",gap:6,marginTop:6}}>{[["month","월별"],["year","연도별"],["all","전체"]].map(([v,l])=><button key={v} style={{...S.scopeBtn,...(reportScope===v?S.scopeBtnActive:{})}} onClick={()=>setReportScope(v)}>{l}</button>)}</div></div>
+      {reportScope==="month"&&<div style={S.modalSection}><label style={S.label}>월 선택</label><select style={{...S.input,marginTop:6}} value={reportMonth} onChange={e=>setReportMonth(e.target.value)}>{months.map(m=><option key={m} value={m}>{m.replace("-","년 ")}월</option>)}</select></div>}
+      {reportScope==="year"&&<div style={S.modalSection}><label style={S.label}>연도 선택</label><select style={{...S.input,marginTop:6}} value={reportYear} onChange={e=>setReportYear(e.target.value)}>{years.map(y=><option key={y} value={y}>{y}년</option>)}</select></div>}
+      <div style={{display:"flex",gap:10,marginTop:24}}>
+        <button style={S.reportBtnExcel} onClick={()=>{const p=getPeriod();generateExcelReport(entries,p.fn,p.label);}}><span style={{fontSize:18}}>📊</span> 엑셀 다운로드</button>
+        <button style={S.reportBtnPDF} onClick={()=>{const p=getPeriod();generatePDFReport(entries,p.fn,p.label);}}><span style={{fontSize:18}}>📄</span> PDF 보기/저장</button>
+      </div>
+      <div style={S.reportTip}>💡 PDF는 새 창에서 열리며, 브라우저의 인쇄(Ctrl+P) 기능으로 PDF 파일로 저장할 수 있습니다.</div>
+      <button style={{...S.modalClose,marginTop:16}} onClick={onClose}>닫기</button>
+    </div></div>
+  );
+}
+
+// ──── Excel Import Modal ────
+function ImportExcelModal({onImport,onClose}){
+  const[preview,setPreview]=useState(null);const[headers,setHeaders]=useState([]);const[rows,setRows]=useState([]);
+  const[mapping,setMapping]=useState({date:"",type:"",category:"",amount:"",memo:""});
+  const[importMode,setImportMode]=useState("append");const[error,setError]=useState("");
+  const FIELDS=[{key:"date",label:"날짜",required:true},{key:"type",label:"구분 (수입/지출)",required:true},{key:"category",label:"종류/항목",required:true},{key:"amount",label:"금액",required:true},{key:"memo",label:"메모",required:false}];
+
+  const formatDateValue=(val)=>{if(!val)return null;if(val instanceof Date){const y=val.getFullYear();const m=String(val.getMonth()+1).padStart(2,"0");const d=String(val.getDate()).padStart(2,"0");return`${y}-${m}-${d}`;}const s=String(val).trim();if(/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)){const[y,m,d]=s.split("-");return`${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;}if(/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(s)){const[y,m,d]=s.split("/");return`${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;}if(/^\d{8}$/.test(s))return`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;if(/^\d{5}$/.test(s)){const d=new Date((parseInt(s)-25569)*86400000);if(!isNaN(d.getTime()))return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}return null;};
+
+  const handleFile=async(e)=>{const file=e.target.files[0];if(!file)return;setError("");
+    try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array",cellDates:true});const ws=wb.Sheets[wb.SheetNames[0]];const jsonData=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+      if(jsonData.length<2){setError("데이터가 부족합니다.");return;}
+      const hdrs=jsonData[0].map(h=>String(h).trim());const dataRows=jsonData.slice(1).filter(r=>r.some(c=>c!==""));setHeaders(hdrs);setRows(dataRows);setPreview(file.name);
+      const autoMap={date:"",type:"",category:"",amount:"",memo:""};
+      hdrs.forEach((h,i)=>{const low=h.toLowerCase();if(!autoMap.date&&(low.includes("날짜")||low.includes("date")||low.includes("일자")))autoMap.date=String(i);if(!autoMap.type&&(low.includes("구분")||low.includes("type")||low.includes("유형")))autoMap.type=String(i);if(!autoMap.category&&(low.includes("종류")||low.includes("항목")||low.includes("category")||low.includes("헌금")))autoMap.category=String(i);if(!autoMap.amount&&(low.includes("금액")||low.includes("amount")||low.includes("원")))autoMap.amount=String(i);if(!autoMap.memo&&(low.includes("메모")||low.includes("memo")||low.includes("비고")))autoMap.memo=String(i);});
+      setMapping(autoMap);
+    }catch(err){setError("파일을 읽을 수 없습니다. .xlsx, .xls, .csv 형식만 지원됩니다.");}
+  };
+
+  const handleImport=()=>{
+    if(!mapping.date||!mapping.type||!mapping.category||!mapping.amount){setError("날짜, 구분, 종류/항목, 금액은 필수 매핑 항목입니다.");return;}
+    const parsed=[];let skipped=0;
+    rows.forEach(row=>{const dateVal=formatDateValue(row[parseInt(mapping.date)]);const typeRaw=String(row[parseInt(mapping.type)]||"").trim();const category=String(row[parseInt(mapping.category)]||"").trim();const amountRaw=row[parseInt(mapping.amount)];const memo=mapping.memo?String(row[parseInt(mapping.memo)]||"").trim():"";
+      let amount=0;if(typeof amountRaw==="number")amount=Math.abs(Math.round(amountRaw));else amount=Math.abs(parseInt(String(amountRaw).replace(/[^0-9-]/g,""),10)||0);
+      let type="";if(typeRaw.includes("수입")||typeRaw.includes("income")||typeRaw.includes("입금"))type="수입";else if(typeRaw.includes("지출")||typeRaw.includes("expense")||typeRaw.includes("출금"))type="지출";else type="수입";
+      if(!dateVal||!category||!amount){skipped++;return;}
+      parsed.push({date:dateVal,type,category,amount,memo});
+    });
+    if(!parsed.length){setError("유효한 데이터가 없습니다.");return;}
+    onImport(parsed,importMode);onClose();alert(`${parsed.length}건 가져오기 완료${skipped?` (${skipped}건 건너뜀)`:""}`);
+  };
+
+  return(
+    <div style={S.modalOverlay} onClick={onClose}><div style={{...S.modal,maxWidth:600,maxHeight:"90vh",overflow:"auto"}} onClick={e=>e.stopPropagation()}>
+      <div style={S.modalTitle}>📊 엑셀 데이터 불러오기</div><div style={S.modalSub}>기존 엑셀 파일(.xlsx, .xls, .csv)의 데이터를 가져올 수 있습니다</div>
+      <div style={{...S.modalSection,marginTop:16}}><label style={{...S.label,marginBottom:8,display:"block"}}>파일 선택</label><input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} style={{fontSize:14,fontFamily:"'Noto Sans KR',sans-serif"}}/></div>
+      {error&&<div style={{padding:"10px 14px",background:"#fce4e4",borderRadius:8,color:"#b91c1c",fontSize:13,marginBottom:16}}>{error}</div>}
+      {preview&&<>
+        <div style={{padding:"10px 14px",background:"#f0faf0",borderRadius:8,color:"#2e7d32",fontSize:13,marginBottom:16}}>✓ <strong>{preview}</strong> 로드 완료 — {rows.length}행, {headers.length}열 감지</div>
+        <div style={S.modalSection}><label style={{...S.label,marginBottom:12,display:"block"}}>칼럼 매핑</label><div style={{fontSize:12,color:"#8b7a65",marginBottom:12}}>엑셀의 각 열이 어떤 항목에 해당하는지 선택해주세요</div>
+          {FIELDS.map(f=><div key={f.key} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}><div style={{width:120,fontSize:13,fontWeight:600,color:"#5a4332"}}>{f.label}{f.required&&<span style={{color:"#b91c1c"}}> *</span>}</div><select style={{...S.input,flex:1,fontSize:13,padding:"8px 10px"}} value={mapping[f.key]} onChange={e=>setMapping(m=>({...m,[f.key]:e.target.value}))}><option value="">— 선택 안함 —</option>{headers.map((h,i)=><option key={i} value={String(i)}>{h}</option>)}</select></div>)}
+        </div>
+        <div style={S.modalSection}><label style={{...S.label,marginBottom:8,display:"block"}}>미리보기 (처음 5행)</label>
+          <div style={{overflowX:"auto",borderRadius:8,border:"1px solid #d4c9b8"}}><table style={{...S.table,fontSize:12}}><thead><tr>{headers.map((h,i)=>{const mapped=Object.entries(mapping).find(([k,v])=>v===String(i));return<th key={i} style={{...S.th,fontSize:11,padding:"8px 6px",background:mapped?"#e8f5e9":"#faf5ed"}}>{h}{mapped&&<span style={{color:"#2e7d32"}}> → {FIELDS.find(f=>f.key===mapped[0])?.label}</span>}</th>;})}</tr></thead><tbody>{rows.slice(0,5).map((row,ri)=><tr key={ri} style={S.tr}>{headers.map((_,ci)=><td key={ci} style={{...S.td,fontSize:12,padding:"6px"}}>{row[ci] instanceof Date?formatDateValue(row[ci]):String(row[ci]??"")}</td>)}</tr>)}</tbody></table></div>
+        </div>
+        <div style={S.modalSection}><label style={{...S.label,marginBottom:8,display:"block"}}>가져오기 방식</label>
+          <div style={{display:"flex",gap:8}}><button style={{...S.scopeBtn,...(importMode==="append"?S.scopeBtnActive:{})}} onClick={()=>setImportMode("append")}>기존 데이터에 추가</button><button style={{...S.scopeBtn,...(importMode==="replace"?{...S.scopeBtnActive,background:"#b91c1c",borderColor:"#b91c1c"}:{})}} onClick={()=>setImportMode("replace")}>기존 데이터 대체</button></div>
+          {importMode==="replace"&&<div style={{fontSize:12,color:"#b91c1c",marginTop:8}}>⚠ 기존 데이터가 모두 삭제되고 새 데이터로 교체됩니다</div>}
+        </div>
+        <button style={{...S.reportBtnExcel,marginTop:16}} onClick={handleImport}>📥 {rows.length}건 가져오기</button>
+      </>}
+      <button style={{...S.modalClose,marginTop:16}} onClick={onClose}>닫기</button>
+    </div></div>
+  );
+}
+
+// ──── Main App ────
+function App(){
+  const[entries,setEntries]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[saving,setSaving]=useState(false);
+  const[error,setError]=useState("");
+  const[viewMode,setViewMode]=useState("monthly");
+  const[selectedMonth,setSelectedMonth]=useState(getToday().slice(0,7));
+  const[selectedYear,setSelectedYear]=useState(getToday().slice(0,4));
+  const[showMenu,setShowMenu]=useState(false);
+  const[showReport,setShowReport]=useState(false);
+  const[showImport,setShowImport]=useState(false);
+
+  const refresh=useCallback(async()=>{
+    try{const data=await loadEntries();setEntries(data);setError("");}
+    catch(e){setError("데이터를 불러올 수 없습니다. 인터넷 연결을 확인해주세요.");}
+  },[]);
+
+  useEffect(()=>{refresh().then(()=>setLoading(false));},[refresh]);
+
+  // Auto-refresh every 30 seconds for multi-user sync
+  useEffect(()=>{const id=setInterval(refresh,30000);return()=>clearInterval(id);},[refresh]);
+
+  const handleAdd=useCallback(async(entry)=>{
+    setSaving(true);
+    try{await insertEntry(entry);await refresh();}
+    catch(e){alert("저장에 실패했습니다. 인터넷 연결을 확인해주세요.");}
+    finally{setSaving(false);}
+  },[refresh]);
+
+  const handleDelete=useCallback(async(id)=>{
+    if(!confirm("이 항목을 삭제하시겠습니까?"))return;
+    try{await deleteEntry(id);await refresh();}
+    catch(e){alert("삭제에 실패했습니다.");}
+  },[refresh]);
+
+  const handleImportExcel=useCallback(async(parsed,mode)=>{
+    setSaving(true);
+    try{
+      if(mode==="replace")await deleteAll();
+      // Insert in batches of 100
+      for(let i=0;i<parsed.length;i+=100){
+        await insertMany(parsed.slice(i,i+100));
+      }
+      await refresh();
+    }catch(e){alert("가져오기에 실패했습니다.");}
+    finally{setSaving(false);}
+  },[refresh]);
+
+  const handleReset=useCallback(async()=>{
+    if(!confirm("모든 데이터를 초기화하시겠습니까?"))return;
+    if(!confirm("정말 삭제하시겠습니까? 마지막 확인입니다."))return;
+    try{await deleteAll();await refresh();}catch(e){alert("초기화에 실패했습니다.");}
+  },[refresh]);
+
+  const months=[...new Set(entries.map(e=>getMK(e.date)).concat([getToday().slice(0,7)]))].sort();
+  const years=[...new Set(entries.map(e=>getYK(e.date)).concat([getToday().slice(0,4)]))].sort();
+
+  if(loading)return<div style={S.loadingWrap}><div style={S.spinner}></div><div style={S.loadingText}>데이터를 불러오는 중...</div></div>;
+
+  return(
+    <div style={S.root}><style>{globalCSS}</style>
+      <header style={S.header}><div style={S.headerInner}>
+        <div style={S.headerLeft}><div style={S.crossIcon}>✝</div><div><h1 style={S.title}>재송성결교회 헌금 출납부</h1><p style={S.subtitle}>Jaesong Holiness Church Offering Ledger</p></div></div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button style={S.syncBtn} onClick={refresh} title="새로고침">🔄</button>
+          <button style={S.headerBtn} onClick={()=>{setShowReport(true);setShowMenu(false);}}>📋 보고서</button>
+          <div style={{position:"relative"}}><button style={S.headerBtn} onClick={()=>setShowMenu(!showMenu)}>⚙ 관리</button>
+            {showMenu&&<div style={S.dropdown}>
+              <button style={S.dropItem} onClick={()=>{setShowImport(true);setShowMenu(false);}}>📊 엑셀 데이터 불러오기</button>
+              <div style={S.dropDiv}/>
+              <button style={{...S.dropItem,color:"#b91c1c"}} onClick={async()=>{await handleReset();setShowMenu(false);}}>🗑 데이터 초기화</button>
+            </div>}
+          </div>
+        </div>
+      </div></header>
+
+      <main style={S.main}>
+        {error&&<div style={{padding:"12px 16px",background:"#fce4e4",borderRadius:10,color:"#b91c1c",fontSize:14,marginBottom:16,textAlign:"center"}}>{error}</div>}
+
+        <div style={S.connBadge}><span style={S.connDot}></span> Supabase 클라우드 연동 · {entries.length}건 · 자동 동기화</div>
+
+        <EntryForm onAdd={handleAdd} saving={saving}/>
+
+        <div style={S.viewBar}>
+          <button style={{...S.viewBtn,...(viewMode==="monthly"?S.viewActive:{})}} onClick={()=>setViewMode("monthly")}>📅 월별 보기</button>
+          <button style={{...S.viewBtn,...(viewMode==="yearly"?S.viewActive:{})}} onClick={()=>setViewMode("yearly")}>📊 연도별 보기</button>
+        </div>
+
+        {viewMode==="monthly"?<>
+          <div style={S.monthBar}><div style={S.monthScroll}>{months.map(m=><button key={m} style={{...S.monthBtn,...(selectedMonth===m?S.monthBtnA:{})}} onClick={()=>setSelectedMonth(m)}>{m.replace("-","년 ")}월</button>)}</div></div>
+          <SummaryCards entries={entries} filterFn={e=>getMK(e.date)===selectedMonth}/>
+          <LedgerTable entries={entries} month={selectedMonth} onDelete={handleDelete}/>
+        </>:<>
+          <div style={S.monthBar}><div style={S.monthScroll}>{years.map(y=><button key={y} style={{...S.monthBtn,...(selectedYear===y?S.monthBtnA:{})}} onClick={()=>setSelectedYear(y)}>{y}년</button>)}</div></div>
+          <SummaryCards entries={entries} filterFn={e=>getYK(e.date)===selectedYear}/>
+          <YearlySummary entries={entries} year={selectedYear}/>
+        </>}
+      </main>
+
+      {showReport&&<ReportModal entries={entries} onClose={()=>setShowReport(false)} viewMode={viewMode} selectedMonth={selectedMonth} selectedYear={selectedYear}/>}
+      {showImport&&<ImportExcelModal onImport={handleImportExcel} onClose={()=>setShowImport(false)}/>}
+    </div>
+  );
+}
+
+// ──── CSS ────
+const globalCSS=`
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&family=Nanum+Myeongjo:wght@400;700&display=swap');
+.num-input{width:100%;padding:10px 14px;border:1.5px solid #d4c9b8;border-radius:8px;font-size:15px;font-family:'Noto Sans KR',sans-serif;background:#fffdf8;color:#2c2418;transition:border-color .2s;box-sizing:border-box;text-align:right}
+.num-input:focus{outline:none;border-color:#8b6f47;box-shadow:0 0 0 3px rgba(139,111,71,.12)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+*{box-sizing:border-box}`;
+
+// ──── Styles ────
+const S={
+  root:{fontFamily:"'Noto Sans KR',sans-serif",background:"linear-gradient(170deg,#f7f1e8,#efe6d8 50%,#e8ddd0)",minHeight:"100vh",color:"#2c2418"},
+  loadingWrap:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",fontFamily:"'Noto Sans KR',sans-serif",background:"#f7f1e8"},
+  spinner:{width:40,height:40,border:"3px solid #d4c9b8",borderTopColor:"#8b6f47",borderRadius:"50%",animation:"spin .8s linear infinite"},
+  loadingText:{marginTop:16,color:"#8b6f47",fontSize:15},
+  header:{background:"linear-gradient(135deg,#3d2e1e,#5a4332 60%,#6b5240)",boxShadow:"0 4px 20px rgba(44,36,24,.25)",position:"sticky",top:0,zIndex:100},
+  headerInner:{maxWidth:960,margin:"0 auto",padding:"18px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"},
+  headerLeft:{display:"flex",alignItems:"center",gap:14},
+  crossIcon:{fontSize:32,color:"#d4b982",fontFamily:"'Nanum Myeongjo',serif",fontWeight:700,lineHeight:1,opacity:.9},
+  title:{margin:0,fontSize:20,fontWeight:700,color:"#f5ead6",letterSpacing:"-.5px",fontFamily:"'Nanum Myeongjo',serif"},
+  subtitle:{margin:0,fontSize:10,color:"#c4a87a",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:400},
+  headerBtn:{padding:"8px 14px",background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.15)",borderRadius:8,color:"#e8d9c0",fontSize:13,cursor:"pointer",fontFamily:"'Noto Sans KR',sans-serif",transition:"all .2s"},
+  syncBtn:{padding:"6px 10px",background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.15)",borderRadius:8,color:"#e8d9c0",fontSize:16,cursor:"pointer",transition:"all .2s",lineHeight:1},
+  dropdown:{position:"absolute",right:0,top:"calc(100% + 6px)",background:"#fffdf8",border:"1px solid #d4c9b8",borderRadius:10,boxShadow:"0 8px 30px rgba(44,36,24,.18)",padding:"6px 0",minWidth:200,zIndex:200},
+  dropItem:{display:"block",width:"100%",padding:"10px 18px",background:"none",border:"none",textAlign:"left",cursor:"pointer",fontSize:14,color:"#3d2e1e",fontFamily:"'Noto Sans KR',sans-serif"},
+  dropDiv:{height:1,background:"#e8ddd0",margin:"4px 12px"},
+  main:{maxWidth:960,margin:"0 auto",padding:"24px 16px 60px"},
+  connBadge:{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:"rgba(46,125,50,.06)",border:"1px solid rgba(46,125,50,.15)",borderRadius:10,fontSize:12,color:"#2e7d32",marginBottom:16,fontWeight:500},
+  connDot:{width:8,height:8,borderRadius:"50%",background:"#4caf50",animation:"pulse 2s infinite"},
+  formCard:{background:"#fffdf8",border:"1px solid #d4c9b8",borderRadius:14,padding:"22px 24px 20px",marginBottom:24,boxShadow:"0 2px 12px rgba(44,36,24,.06)"},
+  formTitle:{fontSize:16,fontWeight:700,color:"#5a4332",marginBottom:18,fontFamily:"'Nanum Myeongjo',serif",display:"flex",alignItems:"center",gap:8},
+  formIcon:{color:"#c4a87a",fontSize:14},
+  formGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:"14px 16px"},
+  fg:{display:"flex",flexDirection:"column",gap:5},
+  label:{fontSize:12,fontWeight:600,color:"#8b7a65",letterSpacing:".5px"},
+  input:{padding:"10px 14px",border:"1.5px solid #d4c9b8",borderRadius:8,fontSize:15,fontFamily:"'Noto Sans KR',sans-serif",background:"#fffdf8",color:"#2c2418",outline:"none",width:"100%",boxSizing:"border-box"},
+  toggleRow:{display:"flex",gap:6},
+  toggleBtn:{flex:1,padding:"10px 0",border:"1.5px solid #d4c9b8",borderRadius:8,background:"#fffdf8",cursor:"pointer",fontSize:14,fontWeight:500,fontFamily:"'Noto Sans KR',sans-serif",color:"#8b7a65",transition:"all .2s"},
+  toggleIn:{background:"#e8f5e9",borderColor:"#4caf50",color:"#2e7d32",fontWeight:700},
+  toggleOut:{background:"#fce4e4",borderColor:"#e57373",color:"#c62828",fontWeight:700},
+  submitBtn:{marginTop:18,width:"100%",padding:"13px 0",background:"linear-gradient(135deg,#5a4332,#6b5240)",color:"#f5ead6",border:"none",borderRadius:10,fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans KR',sans-serif",letterSpacing:"1px",boxShadow:"0 2px 8px rgba(90,67,50,.25)",transition:"opacity .2s"},
+  viewBar:{display:"flex",gap:8,marginBottom:16,background:"#fffdf8",borderRadius:12,padding:4,border:"1px solid #d4c9b8"},
+  viewBtn:{flex:1,padding:"10px 0",border:"none",borderRadius:9,background:"transparent",cursor:"pointer",fontSize:14,fontWeight:500,fontFamily:"'Noto Sans KR',sans-serif",color:"#8b7a65",transition:"all .2s"},
+  viewActive:{background:"#5a4332",color:"#f5ead6",fontWeight:700,boxShadow:"0 2px 6px rgba(90,67,50,.2)"},
+  monthBar:{marginBottom:20},monthScroll:{display:"flex",gap:8,overflowX:"auto",padding:"4px 0"},
+  monthBtn:{padding:"8px 18px",border:"1.5px solid #d4c9b8",borderRadius:20,background:"#fffdf8",cursor:"pointer",fontSize:14,fontFamily:"'Noto Sans KR',sans-serif",color:"#8b7a65",whiteSpace:"nowrap",fontWeight:500,transition:"all .2s"},
+  monthBtnA:{background:"#5a4332",color:"#f5ead6",borderColor:"#5a4332",fontWeight:700,boxShadow:"0 2px 8px rgba(90,67,50,.2)"},
+  summaryRow:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14,marginBottom:24},
+  summaryCard:{borderRadius:12,padding:"18px 20px",boxShadow:"0 2px 10px rgba(44,36,24,.06)"},
+  incomeCard:{background:"linear-gradient(135deg,#f0faf0,#e0f2e0)",border:"1px solid #c5e1c5"},
+  expenseCard:{background:"linear-gradient(135deg,#fef5f5,#fce4e4)",border:"1px solid #f0c5c5"},
+  balanceCard:{background:"linear-gradient(135deg,#faf7f0,#f0e8d8)",border:"1px solid #d4c9b8"},
+  summaryLabel:{fontSize:12,fontWeight:600,color:"#8b7a65",letterSpacing:"1px",marginBottom:6},
+  summaryAmt:{fontSize:22,fontWeight:800,fontVariantNumeric:"tabular-nums",color:"#2c2418"},
+  won:{fontSize:14,fontWeight:500,marginLeft:3,color:"#8b7a65"},
+  summaryDetail:{marginTop:10,display:"flex",flexWrap:"wrap",gap:6},
+  catTag:{fontSize:11,padding:"3px 8px",background:"rgba(46,125,50,.08)",borderRadius:10,color:"#3d7a40",fontWeight:500},
+  yearBar:{background:"#fffdf8",border:"1px solid #d4c9b8",borderRadius:12,padding:"16px 22px",marginBottom:16,boxShadow:"0 2px 10px rgba(44,36,24,.06)"},
+  yearTitle:{fontSize:15,fontWeight:700,color:"#5a4332",marginBottom:10,fontFamily:"'Nanum Myeongjo',serif"},
+  yearRow:{display:"flex",flexWrap:"wrap",gap:12,alignItems:"center",fontSize:15,fontWeight:600,fontVariantNumeric:"tabular-nums",color:"#2c2418"},
+  yearItem:{display:"inline-flex",gap:6},yearDiv:{color:"#d4c9b8",fontWeight:300},
+  tableWrap:{overflowX:"auto",borderRadius:12,border:"1px solid #d4c9b8",background:"#fffdf8",boxShadow:"0 2px 12px rgba(44,36,24,.06)"},
+  table:{width:"100%",borderCollapse:"collapse",fontSize:14},
+  th:{padding:"12px 14px",textAlign:"left",fontWeight:700,fontSize:12,color:"#8b7a65",letterSpacing:".5px",borderBottom:"2px solid #d4c9b8",background:"#faf5ed",whiteSpace:"nowrap"},
+  tr:{borderBottom:"1px solid #ede5d8"},td:{padding:"11px 14px",whiteSpace:"nowrap",fontSize:14},
+  badgeIn:{display:"inline-block",padding:"3px 10px",borderRadius:10,background:"#e8f5e9",color:"#2e7d32",fontWeight:600,fontSize:12},
+  badgeOut:{display:"inline-block",padding:"3px 10px",borderRadius:10,background:"#fce4e4",color:"#c62828",fontWeight:600,fontSize:12},
+  delBtn:{background:"none",border:"none",cursor:"pointer",fontSize:20,color:"#ccc",padding:"2px 6px",borderRadius:4,lineHeight:1},
+  empty:{textAlign:"center",padding:"48px 20px",background:"#fffdf8",borderRadius:12,border:"1px dashed #d4c9b8"},
+  emptyIcon:{fontSize:40,marginBottom:12,opacity:.4},emptyText:{fontSize:16,fontWeight:600,color:"#8b7a65",marginBottom:6},emptySub:{fontSize:13,color:"#b8a890"},
+  modalOverlay:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(44,36,24,.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20},
+  modal:{background:"#fffdf8",borderRadius:16,padding:"28px 32px",maxWidth:480,width:"100%",boxShadow:"0 20px 60px rgba(44,36,24,.3)",border:"1px solid #d4c9b8"},
+  modalTitle:{fontSize:20,fontWeight:700,color:"#3d2e1e",fontFamily:"'Nanum Myeongjo',serif",marginBottom:4},
+  modalSub:{fontSize:13,color:"#8b7a65",marginBottom:20},modalSection:{marginBottom:16},
+  scopeBtn:{padding:"8px 16px",border:"1.5px solid #d4c9b8",borderRadius:8,background:"#fffdf8",cursor:"pointer",fontSize:13,fontWeight:500,fontFamily:"'Noto Sans KR',sans-serif",color:"#8b7a65",transition:"all .2s"},
+  scopeBtnActive:{background:"#5a4332",color:"#f5ead6",borderColor:"#5a4332",fontWeight:700},
+  reportBtnExcel:{flex:1,padding:"14px 0",background:"linear-gradient(135deg,#1b5e20,#2e7d32)",color:"#fff",border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans KR',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,boxShadow:"0 2px 8px rgba(27,94,32,.3)"},
+  reportBtnPDF:{flex:1,padding:"14px 0",background:"linear-gradient(135deg,#b91c1c,#dc2626)",color:"#fff",border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"'Noto Sans KR',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,boxShadow:"0 2px 8px rgba(185,28,28,.3)"},
+  reportTip:{marginTop:16,padding:"12px 14px",background:"rgba(139,111,71,.06)",borderRadius:8,fontSize:12,color:"#6b5a48",lineHeight:1.6},
+  modalClose:{marginTop:16,width:"100%",padding:"10px 0",background:"none",border:"1.5px solid #d4c9b8",borderRadius:8,fontSize:14,color:"#8b7a65",cursor:"pointer",fontFamily:"'Noto Sans KR',sans-serif",fontWeight:600},
+};
+
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>
