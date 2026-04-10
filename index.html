@@ -2,14 +2,14 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>재송성결교회 헌금 출납부</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✝</text></svg>">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="헌금출납부">
   <meta name="theme-color" content="#3d2e1e">
-  <style>body{margin:0;padding:0;}</style>
+  <style>body{margin:0;padding:0;-webkit-text-size-adjust:100%;}</style>
 </head>
 <body>
   <div id="root"></div>
@@ -62,6 +62,13 @@ async function insertEntry(entry) {
 
 async function deleteEntry(id) {
   await sbFetch(`${TABLE}?id=eq.${id}`, { method: "DELETE", prefer: "return=minimal" });
+}
+
+async function updateEntry(id, fields) {
+  await sbFetch(`${TABLE}?id=eq.${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(fields),
+  });
 }
 
 async function insertMany(entries) {
@@ -247,15 +254,71 @@ function YearlySummary({entries,year}){
   );
 }
 
-function LedgerTable({entries,month,onDelete,typeFilter}){
+function EditModal({entry,onSave,onClose}){
+  const[form,setForm]=useState({date:entry.date,type:entry.type,category:entry.category,amount:entry.amount,memo:entry.memo||""});
+  const save=()=>{
+    if(!form.category?.trim()||!form.amount){alert("종류/항목과 금액은 필수입니다.");return;}
+    onSave(entry.id,{date:form.date,type:form.type,category:form.category.trim(),amount:form.amount,memo:form.memo.trim()});
+    onClose();
+  };
+  const isExp=form.type==="지출";
+  return(
+    <div style={S.modalOverlay} onClick={onClose}><div style={{...S.modal,maxWidth:420}} onClick={ev=>ev.stopPropagation()}>
+      <div style={S.modalTitle}>✎ 항목 수정</div>
+      <div style={{display:"flex",flexDirection:"column",gap:14,marginTop:16}}>
+        <div style={S.fg}><label style={S.label}>날짜</label><input type="date" value={form.date} onChange={ev=>setForm(f=>({...f,date:ev.target.value}))} style={S.input}/></div>
+        <div style={S.fg}><label style={S.label}>구분</label>
+          <div style={S.toggleRow}>{["수입","지출"].map(t=><button key={t} style={{...S.toggleBtn,...(form.type===t?t==="수입"?S.toggleIn:S.toggleOut:{})}} onClick={()=>setForm(f=>({...f,type:t,category:t==="수입"?"십일조":f.category}))}>{t}</button>)}</div>
+        </div>
+        <div style={S.fg}><label style={S.label}>{isExp?"지출 항목":"헌금 종류"}</label>
+          {isExp?<input type="text" value={form.category} onChange={ev=>setForm(f=>({...f,category:ev.target.value}))} style={S.input} placeholder="지출 항목"/>
+          :<select value={form.category} onChange={ev=>setForm(f=>({...f,category:ev.target.value}))} style={S.input}>{INCOME_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select>}
+        </div>
+        <div style={S.fg}><label style={S.label}>금액 (원)</label><NumberInput className="num-input" value={form.amount} placeholder="0" onChange={v=>setForm(f=>({...f,amount:v}))}/></div>
+        <div style={S.fg}><label style={S.label}>메모</label><input type="text" value={form.memo} onChange={ev=>setForm(f=>({...f,memo:ev.target.value}))} style={S.input} placeholder="비고 사항"/></div>
+      </div>
+      <div style={{display:"flex",gap:10,marginTop:20}}>
+        <button onClick={save} style={{...S.reportBtnExcel,flex:1}}>저장</button>
+        <button onClick={onClose} style={{...S.modalClose,flex:1,marginTop:0}}>취소</button>
+      </div>
+    </div></div>
+  );
+}
+
+function LedgerTable({entries,month,onDelete,onEdit,typeFilter}){
   const filtered=entries.filter(e=>getMK(e.date)===month).filter(e=>typeFilter?e.type===typeFilter:true).sort((a,b)=>String(a.date).localeCompare(String(b.date))||a.id-b.id);
+  const[editEntry,setEditEntry]=useState(null);
   let rb=0;
+
   if(!filtered.length)return<div style={S.empty}><div style={S.emptyIcon}>📖</div><div style={S.emptyText}>이번 달 기록이 없습니다</div><div style={S.emptySub}>위 양식에서 새 항목을 입력해주세요</div></div>;
   return(
-    <div style={S.tableWrap}><table style={S.table}><thead><tr><th style={S.th}>날짜</th><th style={S.th}>구분</th><th style={S.th}>종류/항목</th><th style={{...S.th,textAlign:"right"}}>금액</th><th style={{...S.th,textAlign:"right"}}>잔액</th><th style={S.th}>메모</th><th style={{...S.th,width:40}}></th></tr></thead><tbody>
+    <>
+    {/* 모바일: 카드 레이아웃 */}
+    <div className="mobile-only" style={S.cardList}>
       {filtered.map(e=>{if(e.type==="수입")rb+=e.amount;else rb-=e.amount;
-        return<tr key={e.id} style={S.tr}><td style={S.td}>{e.date}</td><td style={S.td}><span style={e.type==="수입"?S.badgeIn:S.badgeOut}>{e.type}</span></td><td style={S.td}>{e.category}</td><td style={{...S.td,textAlign:"right",fontVariantNumeric:"tabular-nums",color:e.type==="수입"?"#15713a":"#b91c1c",fontWeight:600}}>{e.type==="수입"?"+":"-"}{fmt(e.amount)}</td><td style={{...S.td,textAlign:"right",fontVariantNumeric:"tabular-nums",fontWeight:500}}>{fmt(rb)}</td><td style={{...S.td,color:"#888",fontSize:13}}>{e.memo}</td><td style={S.td}><button style={S.delBtn} onClick={()=>onDelete(e.id)} title="삭제">×</button></td></tr>;})}
+        return<div key={e.id} style={S.card}>
+          <div style={S.cardTop}>
+            <span style={S.cardDate}>{e.date}</span>
+            <span style={e.type==="수입"?S.badgeIn:S.badgeOut}>{e.type}</span>
+            <div style={S.cardActions}>
+              <button style={S.cardEditBtn} onClick={()=>setEditEntry(e)}>✎</button>
+              <button style={S.cardDelBtn} onClick={()=>onDelete(e.id)}>×</button>
+            </div>
+          </div>
+          <div style={S.cardBody}>
+            <div style={S.cardCategory}>{e.category}</div>
+            <div style={{...S.cardAmount,color:e.type==="수입"?"#15713a":"#b91c1c"}}>{e.type==="수입"?"+":"-"}{fmt(e.amount)}원</div>
+          </div>
+          {e.memo&&<div style={S.cardMemo}>{e.memo}</div>}
+        </div>;})}
+    </div>
+    {/* 데스크톱: 테이블 레이아웃 */}
+    <div className="desktop-only" style={S.tableWrap}><table style={S.table}><thead><tr><th style={S.th}>날짜</th><th style={S.th}>구분</th><th style={S.th}>종류/항목</th><th style={{...S.th,textAlign:"right"}}>금액</th><th style={{...S.th,textAlign:"right"}}>잔액</th><th style={S.th}>메모</th><th style={{...S.th,width:70}}></th></tr></thead><tbody>
+      {(()=>{let rb2=0;return filtered.map(e=>{if(e.type==="수입")rb2+=e.amount;else rb2-=e.amount;
+        return<tr key={e.id} style={S.tr}><td style={S.td}>{e.date}</td><td style={S.td}><span style={e.type==="수입"?S.badgeIn:S.badgeOut}>{e.type}</span></td><td style={S.td}>{e.category}</td><td style={{...S.td,textAlign:"right",fontVariantNumeric:"tabular-nums",color:e.type==="수입"?"#15713a":"#b91c1c",fontWeight:600}}>{e.type==="수입"?"+":"-"}{fmt(e.amount)}</td><td style={{...S.td,textAlign:"right",fontVariantNumeric:"tabular-nums",fontWeight:500}}>{fmt(rb2)}</td><td style={{...S.td,color:"#888",fontSize:13}}>{e.memo}</td><td style={{...S.td,whiteSpace:"nowrap"}}><button style={S.editBtn} onClick={()=>setEditEntry(e)} title="수정">✎</button><button style={S.delBtn} onClick={()=>onDelete(e.id)} title="삭제">×</button></td></tr>;});})()}
     </tbody></table></div>
+    {editEntry&&<EditModal entry={editEntry} onSave={onEdit} onClose={()=>setEditEntry(null)}/>}
+    </>
   );
 }
 
@@ -375,6 +438,11 @@ function App(){
     catch(e){alert("삭제에 실패했습니다.");}
   },[refresh]);
 
+  const handleEdit=useCallback(async(id,fields)=>{
+    try{await updateEntry(id,fields);await refresh();}
+    catch(e){alert("수정에 실패했습니다: "+e.message);}
+  },[refresh]);
+
   const handleImportExcel=useCallback(async(parsed,mode)=>{
     setSaving(true);
     try{
@@ -402,11 +470,11 @@ function App(){
   return(
     <div style={S.root}><style>{globalCSS}</style>
       <header style={S.header}><div style={S.headerInner}>
-        <div style={S.headerLeft}><div style={S.crossIcon}>✝</div><div><h1 style={S.title}>재송성결교회 헌금 출납부</h1><p style={S.subtitle}>Jaesong Holiness Church Offering Ledger</p></div></div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <div style={S.headerLeft}><div style={S.crossIcon}>✝</div><div><h1 style={S.title}>재송성결교회</h1><p style={S.subtitle}>헌금 출납부</p></div></div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <button style={S.syncBtn} onClick={refresh} title="새로고침">🔄</button>
-          <button style={S.headerBtn} onClick={()=>{setShowReport(true);setShowMenu(false);}}>📋 보고서</button>
-          <div style={{position:"relative"}}><button style={S.headerBtn} onClick={()=>setShowMenu(!showMenu)}>⚙ 관리</button>
+          <button style={S.headerBtn} onClick={()=>{setShowReport(true);setShowMenu(false);}}>📋</button>
+          <div style={{position:"relative"}}><button style={S.headerBtn} onClick={()=>setShowMenu(!showMenu)}>⚙</button>
             {showMenu&&<div style={S.dropdown}>
               <button style={S.dropItem} onClick={()=>{setShowImport(true);setShowMenu(false);}}>📊 엑셀 데이터 불러오기</button>
               <div style={S.dropDiv}/>
@@ -431,7 +499,7 @@ function App(){
         {viewMode==="monthly"?<>
           <div style={S.monthBar}><div style={S.monthScroll}>{months.map(m=><button key={m} style={{...S.monthBtn,...(selectedMonth===m?S.monthBtnA:{})}} onClick={()=>setSelectedMonth(m)}>{m.replace("-","년 ")}월</button>)}</div></div>
           <SummaryCards entries={entries} filterFn={e=>getMK(e.date)===selectedMonth} typeFilter={typeFilter} onTypeFilter={setTypeFilter}/>
-          <LedgerTable entries={entries} month={selectedMonth} onDelete={handleDelete} typeFilter={typeFilter}/>
+          <LedgerTable entries={entries} month={selectedMonth} onDelete={handleDelete} onEdit={handleEdit} typeFilter={typeFilter}/>
         </>:<>
           <div style={S.monthBar}><div style={S.monthScroll}>{years.map(y=><button key={y} style={{...S.monthBtn,...(selectedYear===y?S.monthBtnA:{})}} onClick={()=>setSelectedYear(y)}>{y}년</button>)}</div></div>
           <SummaryCards entries={entries} filterFn={e=>getYK(e.date)===selectedYear} typeFilter={typeFilter} onTypeFilter={setTypeFilter}/>
@@ -448,11 +516,17 @@ function App(){
 // ──── CSS ────
 const globalCSS=`
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&family=Nanum+Myeongjo:wght@400;700&display=swap');
-.num-input{width:100%;padding:10px 14px;border:1.5px solid #d4c9b8;border-radius:8px;font-size:15px;font-family:'Noto Sans KR',sans-serif;background:#fffdf8;color:#2c2418;transition:border-color .2s;box-sizing:border-box;text-align:right}
+.num-input{width:100%;padding:10px 14px;border:1.5px solid #d4c9b8;border-radius:8px;font-size:16px;font-family:'Noto Sans KR',sans-serif;background:#fffdf8;color:#2c2418;transition:border-color .2s;box-sizing:border-box;text-align:right}
 .num-input:focus{outline:none;border-color:#8b6f47;box-shadow:0 0 0 3px rgba(139,111,71,.12)}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-*{box-sizing:border-box}`;
+*{box-sizing:border-box}
+.mobile-only{display:none}
+.desktop-only{display:block}
+@media(max-width:768px){
+  .mobile-only{display:block!important}
+  .desktop-only{display:none!important}
+}`;
 
 // ──── Styles ────
 const S={
@@ -480,7 +554,7 @@ const S={
   formGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:"14px 16px"},
   fg:{display:"flex",flexDirection:"column",gap:5},
   label:{fontSize:12,fontWeight:600,color:"#8b7a65",letterSpacing:".5px"},
-  input:{padding:"10px 14px",border:"1.5px solid #d4c9b8",borderRadius:8,fontSize:15,fontFamily:"'Noto Sans KR',sans-serif",background:"#fffdf8",color:"#2c2418",outline:"none",width:"100%",boxSizing:"border-box"},
+  input:{padding:"10px 14px",border:"1.5px solid #d4c9b8",borderRadius:8,fontSize:16,fontFamily:"'Noto Sans KR',sans-serif",background:"#fffdf8",color:"#2c2418",outline:"none",width:"100%",boxSizing:"border-box"},
   toggleRow:{display:"flex",gap:6},
   toggleBtn:{flex:1,padding:"10px 0",border:"1.5px solid #d4c9b8",borderRadius:8,background:"#fffdf8",cursor:"pointer",fontSize:14,fontWeight:500,fontFamily:"'Noto Sans KR',sans-serif",color:"#8b7a65",transition:"all .2s"},
   toggleIn:{background:"#e8f5e9",borderColor:"#4caf50",color:"#2e7d32",fontWeight:700},
@@ -492,7 +566,7 @@ const S={
   monthBar:{marginBottom:20},monthScroll:{display:"flex",gap:8,overflowX:"auto",padding:"4px 0"},
   monthBtn:{padding:"8px 18px",border:"1.5px solid #d4c9b8",borderRadius:20,background:"#fffdf8",cursor:"pointer",fontSize:14,fontFamily:"'Noto Sans KR',sans-serif",color:"#8b7a65",whiteSpace:"nowrap",fontWeight:500,transition:"all .2s"},
   monthBtnA:{background:"#5a4332",color:"#f5ead6",borderColor:"#5a4332",fontWeight:700,boxShadow:"0 2px 8px rgba(90,67,50,.2)"},
-  summaryRow:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14,marginBottom:24},
+  summaryRow:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:20},
   summaryCard:{borderRadius:12,padding:"18px 20px",boxShadow:"0 2px 10px rgba(44,36,24,.06)"},
   incomeCard:{background:"linear-gradient(135deg,#f0faf0,#e0f2e0)",border:"1px solid #c5e1c5"},
   expenseCard:{background:"linear-gradient(135deg,#fef5f5,#fce4e4)",border:"1px solid #f0c5c5"},
@@ -513,6 +587,20 @@ const S={
   badgeIn:{display:"inline-block",padding:"3px 10px",borderRadius:10,background:"#e8f5e9",color:"#2e7d32",fontWeight:600,fontSize:12},
   badgeOut:{display:"inline-block",padding:"3px 10px",borderRadius:10,background:"#fce4e4",color:"#c62828",fontWeight:600,fontSize:12},
   delBtn:{background:"none",border:"none",cursor:"pointer",fontSize:20,color:"#ccc",padding:"2px 6px",borderRadius:4,lineHeight:1},
+  editBtn:{background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#8b7a65",padding:"2px 6px",borderRadius:4,lineHeight:1,marginRight:2},
+  editActionBtn:{border:"none",cursor:"pointer",fontSize:13,padding:"4px 10px",borderRadius:6,fontWeight:700,lineHeight:1},
+  // Mobile card styles
+  cardList:{display:"flex",flexDirection:"column",gap:10},
+  card:{background:"#fffdf8",border:"1px solid #d4c9b8",borderRadius:12,padding:"14px 16px",boxShadow:"0 1px 6px rgba(44,36,24,.06)"},
+  cardTop:{display:"flex",alignItems:"center",gap:8,marginBottom:8},
+  cardDate:{fontSize:13,color:"#8b7a65",fontWeight:500},
+  cardActions:{marginLeft:"auto",display:"flex",gap:4},
+  cardEditBtn:{background:"#f5ead6",border:"1px solid #d4c9b8",borderRadius:8,cursor:"pointer",fontSize:16,color:"#5a4332",padding:"6px 10px",lineHeight:1,fontWeight:700},
+  cardDelBtn:{background:"#fce4e4",border:"1px solid #f0c5c5",borderRadius:8,cursor:"pointer",fontSize:18,color:"#b91c1c",padding:"4px 10px",lineHeight:1},
+  cardBody:{display:"flex",justifyContent:"space-between",alignItems:"center"},
+  cardCategory:{fontSize:15,fontWeight:600,color:"#2c2418"},
+  cardAmount:{fontSize:18,fontWeight:800,fontVariantNumeric:"tabular-nums"},
+  cardMemo:{fontSize:12,color:"#8b7a65",marginTop:6,paddingTop:6,borderTop:"1px solid #ede5d8"},
   empty:{textAlign:"center",padding:"48px 20px",background:"#fffdf8",borderRadius:12,border:"1px dashed #d4c9b8"},
   emptyIcon:{fontSize:40,marginBottom:12,opacity:.4},emptyText:{fontSize:16,fontWeight:600,color:"#8b7a65",marginBottom:6},emptySub:{fontSize:13,color:"#b8a890"},
   modalOverlay:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(44,36,24,.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20},
