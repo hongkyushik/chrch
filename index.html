@@ -289,7 +289,7 @@ function ImportExcelModal({onImport,onClose}){
   const[importMode,setImportMode]=useState("append");const[error,setError]=useState("");
   const FIELDS=[{key:"date",label:"날짜",required:true},{key:"type",label:"구분 (수입/지출)",required:true},{key:"category",label:"종류/항목",required:true},{key:"amount",label:"금액",required:true},{key:"memo",label:"메모",required:false}];
 
-  const formatDateValue=(val)=>{if(!val)return null;if(val instanceof Date){const y=val.getFullYear();const m=String(val.getMonth()+1).padStart(2,"0");const d=String(val.getDate()).padStart(2,"0");return`${y}-${m}-${d}`;}const s=String(val).trim();if(/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)){const[y,m,d]=s.split("-");return`${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;}if(/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(s)){const[y,m,d]=s.split("/");return`${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;}if(/^\d{8}$/.test(s))return`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;if(/^\d{5}$/.test(s)){const d=new Date((parseInt(s)-25569)*86400000);if(!isNaN(d.getTime()))return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}return null;};
+  const formatDateValue=(val)=>{if(!val)return null;if(val instanceof Date){const y=val.getFullYear();const m=String(val.getMonth()+1).padStart(2,"0");const d=String(val.getDate()).padStart(2,"0");return`${y}-${m}-${d}`;}const s=String(val).trim();if(/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)){const[y,m,d]=s.split("-");return`${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;}if(/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(s)){const[y,m,d]=s.split("/");return`${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;}if(/^\d{4}\.\d{1,2}\.\d{1,2}$/.test(s)){const[y,m,d]=s.split(".");return`${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;}if(/^\d{8}$/.test(s))return`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;if(/^\d{5}$/.test(s)){const d=new Date((parseInt(s)-25569)*86400000);if(!isNaN(d.getTime()))return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}return null;};
 
   const handleFile=async(e)=>{const file=e.target.files[0];if(!file)return;setError("");
     try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array",cellDates:true});const ws=wb.Sheets[wb.SheetNames[0]];const jsonData=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
@@ -364,7 +364,7 @@ function App(){
   const handleAdd=useCallback(async(entry)=>{
     setSaving(true);
     try{await insertEntry(entry);await refresh();}
-    catch(e){alert("저장에 실패했습니다. 인터넷 연결을 확인해주세요.");}
+    catch(e){alert("저장에 실패했습니다: " + e.message);}
     finally{setSaving(false);}
   },[refresh]);
 
@@ -383,7 +383,7 @@ function App(){
         await insertMany(parsed.slice(i,i+100));
       }
       await refresh();
-    }catch(e){alert("가져오기에 실패했습니다.");}
+    }catch(e){alert("가져오기에 실패했습니다: " + e.message);}
     finally{setSaving(false);}
   },[refresh]);
 
