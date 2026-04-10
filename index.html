@@ -209,7 +209,7 @@ function EntryForm({onAdd,saving}){
   );
 }
 
-function SummaryCards({entries,filterFn}){
+function SummaryCards({entries,filterFn,typeFilter,onTypeFilter}){
   const filtered=entries.filter(filterFn);
   const inc=filtered.filter(e=>e.type==="수입").reduce((s,e)=>s+e.amount,0);
   const exp=filtered.filter(e=>e.type==="지출").reduce((s,e)=>s+e.amount,0);
@@ -220,9 +220,9 @@ function SummaryCards({entries,filterFn}){
   const topExp=Object.entries(expCats).sort((a,b)=>b[1]-a[1]).slice(0,3);
   return(
     <div style={S.summaryRow}>
-      <div style={{...S.summaryCard,...S.incomeCard}}><div style={S.summaryLabel}>총 수입</div><div style={S.summaryAmt}>{fmt(inc)}<span style={S.won}>원</span></div><div style={S.summaryDetail}>{topInc.map(([c,a])=><span key={c} style={S.catTag}>{c} {fmt(a)}</span>)}</div></div>
-      <div style={{...S.summaryCard,...S.expenseCard}}><div style={S.summaryLabel}>총 지출</div><div style={S.summaryAmt}>{fmt(exp)}<span style={S.won}>원</span></div><div style={S.summaryDetail}>{topExp.map(([c,a])=><span key={c} style={{...S.catTag,background:"rgba(185,28,28,0.07)",color:"#b91c1c"}}>{c} {fmt(a)}</span>)}</div></div>
-      <div style={{...S.summaryCard,...S.balanceCard}}><div style={S.summaryLabel}>잔액</div><div style={{...S.summaryAmt,color:bal>=0?"#1a6b3c":"#b91c1c"}}>{bal>=0?"+":""}{fmt(bal)}<span style={S.won}>원</span></div></div>
+      <div style={{...S.summaryCard,...S.incomeCard,cursor:"pointer",outline:typeFilter==="수입"?"3px solid #2e7d32":"none",outlineOffset:-1}} onClick={()=>onTypeFilter(typeFilter==="수입"?null:"수입")}><div style={S.summaryLabel}>총 수입 {typeFilter==="수입"&&<span style={{fontSize:10}}>✓ 필터 적용중</span>}</div><div style={S.summaryAmt}>{fmt(inc)}<span style={S.won}>원</span></div><div style={S.summaryDetail}>{topInc.map(([c,a])=><span key={c} style={S.catTag}>{c} {fmt(a)}</span>)}</div></div>
+      <div style={{...S.summaryCard,...S.expenseCard,cursor:"pointer",outline:typeFilter==="지출"?"3px solid #b91c1c":"none",outlineOffset:-1}} onClick={()=>onTypeFilter(typeFilter==="지출"?null:"지출")}><div style={S.summaryLabel}>총 지출 {typeFilter==="지출"&&<span style={{fontSize:10}}>✓ 필터 적용중</span>}</div><div style={S.summaryAmt}>{fmt(exp)}<span style={S.won}>원</span></div><div style={S.summaryDetail}>{topExp.map(([c,a])=><span key={c} style={{...S.catTag,background:"rgba(185,28,28,0.07)",color:"#b91c1c"}}>{c} {fmt(a)}</span>)}</div></div>
+      <div style={{...S.summaryCard,...S.balanceCard,cursor:"pointer",outline:typeFilter===null?"none":"none"}} onClick={()=>onTypeFilter(null)}><div style={S.summaryLabel}>잔액 {typeFilter&&<span style={{fontSize:10,color:"#8b7a65"}}>클릭하면 전체보기</span>}</div><div style={{...S.summaryAmt,color:bal>=0?"#1a6b3c":"#b91c1c"}}>{bal>=0?"+":""}{fmt(bal)}<span style={S.won}>원</span></div></div>
     </div>
   );
 }
@@ -247,8 +247,8 @@ function YearlySummary({entries,year}){
   );
 }
 
-function LedgerTable({entries,month,onDelete}){
-  const filtered=entries.filter(e=>getMK(e.date)===month).sort((a,b)=>String(a.date).localeCompare(String(b.date))||a.id-b.id);
+function LedgerTable({entries,month,onDelete,typeFilter}){
+  const filtered=entries.filter(e=>getMK(e.date)===month).filter(e=>typeFilter?e.type===typeFilter:true).sort((a,b)=>String(a.date).localeCompare(String(b.date))||a.id-b.id);
   let rb=0;
   if(!filtered.length)return<div style={S.empty}><div style={S.emptyIcon}>📖</div><div style={S.emptyText}>이번 달 기록이 없습니다</div><div style={S.emptySub}>위 양식에서 새 항목을 입력해주세요</div></div>;
   return(
@@ -350,6 +350,7 @@ function App(){
   const[showMenu,setShowMenu]=useState(false);
   const[showReport,setShowReport]=useState(false);
   const[showImport,setShowImport]=useState(false);
+  const[typeFilter,setTypeFilter]=useState(null);
 
   const refresh=useCallback(async()=>{
     try{const data=await loadEntries();setEntries(data);setError("");}
@@ -423,17 +424,17 @@ function App(){
         <EntryForm onAdd={handleAdd} saving={saving}/>
 
         <div style={S.viewBar}>
-          <button style={{...S.viewBtn,...(viewMode==="monthly"?S.viewActive:{})}} onClick={()=>setViewMode("monthly")}>📅 월별 보기</button>
-          <button style={{...S.viewBtn,...(viewMode==="yearly"?S.viewActive:{})}} onClick={()=>setViewMode("yearly")}>📊 연도별 보기</button>
+          <button style={{...S.viewBtn,...(viewMode==="monthly"?S.viewActive:{})}} onClick={()=>{setViewMode("monthly");setTypeFilter(null);}}>📅 월별 보기</button>
+          <button style={{...S.viewBtn,...(viewMode==="yearly"?S.viewActive:{})}} onClick={()=>{setViewMode("yearly");setTypeFilter(null);}}>📊 연도별 보기</button>
         </div>
 
         {viewMode==="monthly"?<>
           <div style={S.monthBar}><div style={S.monthScroll}>{months.map(m=><button key={m} style={{...S.monthBtn,...(selectedMonth===m?S.monthBtnA:{})}} onClick={()=>setSelectedMonth(m)}>{m.replace("-","년 ")}월</button>)}</div></div>
-          <SummaryCards entries={entries} filterFn={e=>getMK(e.date)===selectedMonth}/>
-          <LedgerTable entries={entries} month={selectedMonth} onDelete={handleDelete}/>
+          <SummaryCards entries={entries} filterFn={e=>getMK(e.date)===selectedMonth} typeFilter={typeFilter} onTypeFilter={setTypeFilter}/>
+          <LedgerTable entries={entries} month={selectedMonth} onDelete={handleDelete} typeFilter={typeFilter}/>
         </>:<>
           <div style={S.monthBar}><div style={S.monthScroll}>{years.map(y=><button key={y} style={{...S.monthBtn,...(selectedYear===y?S.monthBtnA:{})}} onClick={()=>setSelectedYear(y)}>{y}년</button>)}</div></div>
-          <SummaryCards entries={entries} filterFn={e=>getYK(e.date)===selectedYear}/>
+          <SummaryCards entries={entries} filterFn={e=>getYK(e.date)===selectedYear} typeFilter={typeFilter} onTypeFilter={setTypeFilter}/>
           <YearlySummary entries={entries} year={selectedYear}/>
         </>}
       </main>
