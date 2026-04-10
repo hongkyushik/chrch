@@ -84,7 +84,17 @@ async function deleteAll() {
 
 // ──── Export helpers ────
 function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 500);
 }
 
 // ──── Report: Excel ────
@@ -174,8 +184,10 @@ td{padding:7px 10px;border-bottom:1px solid #ede5d8}.r{text-align:right;font-var
 <div class="section sec-ex">▸ 지출 내역 (${expense.length}건)</div><table><thead><tr><th>날짜</th><th>지출 항목</th><th style="text-align:right">금액</th><th>메모</th></tr></thead><tbody>${expRows}<tr class="total-row"><td colspan="2">지출 합계</td><td class="r rd">${fmt(totalExpense)}</td><td></td></tr></tbody></table>
 <div class="section sec-sum">▸ 지출 항목별 소계</div><table><thead><tr><th>지출 항목</th><th style="text-align:right">금액</th></tr></thead><tbody>${expCatRows}<tr class="total-row"><td>합계</td><td class="r">${fmt(totalExpense)}</td></tr></tbody></table>
 <div class="footer">재송성결교회 헌금 출납부 · 본 보고서는 자동 생성되었습니다</div>
-<scr"+"ipt>window.onload=()=>{window.print();}</scr"+"ipt></body></html>`;
-  const w=window.open("","_blank","width=900,height=700");if(w){w.document.write(html);w.document.close();}else{alert("팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.");}
+</body></html>`;
+  // Mobile-compatible: download as HTML file, user can open and print to PDF
+  const blob = new Blob([html], {type: "text/html;charset=utf-8;"});
+  downloadBlob(blob, "재송성결교회_보고서_" + periodLabel + ".html");
 }
 
 // ──── Components ────
@@ -376,9 +388,9 @@ function ReportModal({entries,onClose,viewMode,selectedMonth,selectedYear}){
       {reportScope==="year"&&<div style={S.modalSection}><label style={S.label}>연도 선택</label><select style={{...S.input,marginTop:6}} value={reportYear} onChange={e=>setReportYear(e.target.value)}>{years.map(y=><option key={y} value={y}>{y}년</option>)}</select></div>}
       <div style={{display:"flex",gap:10,marginTop:24}}>
         <button style={S.reportBtnExcel} onClick={()=>{const p=getPeriod();generateExcelReport(entries,p.fn,p.label);}}><span style={{fontSize:18}}>📊</span> 엑셀 다운로드</button>
-        <button style={S.reportBtnPDF} onClick={()=>{const p=getPeriod();generatePDFReport(entries,p.fn,p.label);}}><span style={{fontSize:18}}>📄</span> PDF 보기/저장</button>
+        <button style={S.reportBtnPDF} onClick={()=>{const p=getPeriod();generatePDFReport(entries,p.fn,p.label);}}><span style={{fontSize:18}}>📄</span> PDF 보고서</button>
       </div>
-      <div style={S.reportTip}>💡 PDF는 새 창에서 열리며, 브라우저의 인쇄(Ctrl+P) 기능으로 PDF 파일로 저장할 수 있습니다.</div>
+      <div style={S.reportTip}>💡 엑셀은 바로 다운로드됩니다. PDF 보고서는 HTML 파일로 저장된 후 열어서 인쇄(Ctrl+P 또는 공유→인쇄)로 PDF 저장할 수 있습니다.</div>
       <button style={{...S.modalClose,marginTop:16}} onClick={onClose}>닫기</button>
     </div></div>
   );
