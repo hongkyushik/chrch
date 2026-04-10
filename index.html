@@ -9,19 +9,16 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="헌금출납부">
   <meta name="theme-color" content="#3d2e1e">
-  <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIuyerOyGseyEseqyiOq1kO2ajCDtuIzquIgg7Lac64Kp67aAIiwKICAic2hvcnRfbmFtZSI6ICLtl4zquIjstpzrgqnrtoBfIiwKICAic3RhcnRfdXJsIjogIi4iLAogICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiNmN2YxZTgiLAogICJ0aGVtZV9jb2xvciI6ICIjM2QyZTFlIiwKICAiaWNvbnMiOiBbXQp9">
+  <style>body{margin:0;padding:0;}</style>
 </head>
 <body>
   <div id="root"></div>
-
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <script type="text/babel">
+  <script src="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js"></script>
+  <script type="text/babel" data-type="module">
     const { useState, useEffect, useCallback, useRef } = React;
 
-    
 // ──── Supabase Config ────
 const SUPABASE_URL = "https://apwsupveudxzvywmlfuq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_v4lXHhMsWPDgUaNzbckRyA_Tr-dyEAs";
@@ -170,7 +167,7 @@ td{padding:7px 10px;border-bottom:1px solid #ede5d8}.r{text-align:right;font-var
 <div class="section sec-ex">▸ 지출 내역 (${expense.length}건)</div><table><thead><tr><th>날짜</th><th>지출 항목</th><th style="text-align:right">금액</th><th>메모</th></tr></thead><tbody>${expRows}<tr class="total-row"><td colspan="2">지출 합계</td><td class="r rd">${fmt(totalExpense)}</td><td></td></tr></tbody></table>
 <div class="section sec-sum">▸ 지출 항목별 소계</div><table><thead><tr><th>지출 항목</th><th style="text-align:right">금액</th></tr></thead><tbody>${expCatRows}<tr class="total-row"><td>합계</td><td class="r">${fmt(totalExpense)}</td></tr></tbody></table>
 <div class="footer">재송성결교회 헌금 출납부 · 본 보고서는 자동 생성되었습니다</div>
-<script>window.onload=()=>{window.print();}</script></body></html>`;
+<scr"+"ipt>window.onload=()=>{window.print();}</scr"+"ipt></body></html>`;
   const w=window.open("","_blank","width=900,height=700");if(w){w.document.write(html);w.document.close();}else{alert("팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.");}
 }
 
@@ -528,7 +525,6 @@ const S={
   reportTip:{marginTop:16,padding:"12px 14px",background:"rgba(139,111,71,.06)",borderRadius:8,fontSize:12,color:"#6b5a48",lineHeight:1.6},
   modalClose:{marginTop:16,width:"100%",padding:"10px 0",background:"none",border:"1.5px solid #d4c9b8",borderRadius:8,fontSize:14,color:"#8b7a65",cursor:"pointer",fontFamily:"'Noto Sans KR',sans-serif",fontWeight:600},
 };
-
 
     const root = ReactDOM.createRoot(document.getElementById("root"));
     root.render(React.createElement(App));
