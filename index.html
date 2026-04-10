@@ -501,8 +501,8 @@ function App(){
     try{await deleteAll();await refresh();}catch(e){alert("초기화에 실패했습니다.");}
   },[refresh]);
 
-  const months=[...new Set(entries.map(e=>getMK(e.date)).concat([getToday().slice(0,7)]))].sort();
-  const years=[...new Set(entries.map(e=>getYK(e.date)).concat([getToday().slice(0,4)]))].sort();
+  const months=[...new Set(entries.map(e=>getMK(e.date)).concat([getToday().slice(0,7)]))].sort().reverse();
+  const years=[...new Set(entries.map(e=>getYK(e.date)).concat([getToday().slice(0,4)]))].sort().reverse();
 
   if(loading)return<div style={S.loadingWrap}><div style={S.spinner}></div><div style={S.loadingText}>데이터를 불러오는 중...</div></div>;
 
