@@ -240,14 +240,53 @@ function YearlySummary({entries,year}){
   if(!months.length)return<div style={S.empty}><div style={S.emptyIcon}>📊</div><div style={S.emptyText}>{year}년 기록이 없습니다</div></div>;
   const yInc=ye.filter(e=>e.type==="수입").reduce((s,e)=>s+e.amount,0);
   const yExp=ye.filter(e=>e.type==="지출").reduce((s,e)=>s+e.amount,0);
+
+  const monthData=months.map(m=>{
+    const me=ye.filter(e=>getMK(e.date)===m);
+    const mi=me.filter(e=>e.type==="수입").reduce((s,e)=>s+e.amount,0);
+    const mx=me.filter(e=>e.type==="지출").reduce((s,e)=>s+e.amount,0);
+    const ic={};me.filter(e=>e.type==="수입").forEach(e=>{ic[e.category]=(ic[e.category]||0)+e.amount;});
+    const ec={};me.filter(e=>e.type==="지출").forEach(e=>{ec[e.category]=(ec[e.category]||0)+e.amount;});
+    return{m,mi,mx,ic,ec};
+  });
+
   return(
     <div>
       <div style={S.yearBar}><div style={S.yearTitle}>📊 {year}년 연간 총합</div>
         <div style={S.yearRow}><span style={S.yearItem}><span style={{color:"#2e7d32"}}>수입</span> {fmt(yInc)}원</span><span style={S.yearDiv}>│</span><span style={S.yearItem}><span style={{color:"#b91c1c"}}>지출</span> {fmt(yExp)}원</span><span style={S.yearDiv}>│</span><span style={S.yearItem}><span style={{color:yInc-yExp>=0?"#1a6b3c":"#b91c1c",fontWeight:700}}>잔액 {yInc-yExp>=0?"+":""}{fmt(yInc-yExp)}원</span></span></div>
       </div>
-      <div style={S.tableWrap}><table style={S.table}><thead><tr><th style={S.th}>월</th><th style={{...S.th,textAlign:"right"}}>수입</th><th style={{...S.th,textAlign:"right"}}>지출</th><th style={{...S.th,textAlign:"right"}}>잔액</th><th style={S.th}>주요 수입</th><th style={S.th}>주요 지출</th></tr></thead><tbody>
-        {months.map(m=>{const me=ye.filter(e=>getMK(e.date)===m);const mi=me.filter(e=>e.type==="수입").reduce((s,e)=>s+e.amount,0);const mx=me.filter(e=>e.type==="지출").reduce((s,e)=>s+e.amount,0);const ic={};me.filter(e=>e.type==="수입").forEach(e=>{ic[e.category]=(ic[e.category]||0)+e.amount;});const ec={};me.filter(e=>e.type==="지출").forEach(e=>{ec[e.category]=(ec[e.category]||0)+e.amount;});
-          return<tr key={m} style={S.tr}><td style={{...S.td,fontWeight:700}}>{parseInt(m.split("-")[1])}월</td><td style={{...S.td,textAlign:"right",color:"#15713a",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>+{fmt(mi)}</td><td style={{...S.td,textAlign:"right",color:"#b91c1c",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>-{fmt(mx)}</td><td style={{...S.td,textAlign:"right",fontWeight:700,fontVariantNumeric:"tabular-nums",color:mi-mx>=0?"#1a6b3c":"#b91c1c"}}>{mi-mx>=0?"+":""}{fmt(mi-mx)}</td><td style={{...S.td,fontSize:12,color:"#6b5a48"}}>{Object.entries(ic).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([c,a])=>`${c}(${fmt(a)})`).join(", ")}</td><td style={{...S.td,fontSize:12,color:"#6b5a48"}}>{Object.entries(ec).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([c,a])=>`${c}(${fmt(a)})`).join(", ")}</td></tr>;})}
+
+      {/* 모바일: 카드 레이아웃 */}
+      <div className="mobile-only" style={S.cardList}>
+        {monthData.map(({m,mi,mx,ic,ec})=>(
+          <div key={m} style={S.yearCard}>
+            <div style={S.yearCardHeader}><span style={S.yearCardMonth}>{parseInt(m.split("-")[1])}월</span></div>
+            <div style={S.yearCardRow}>
+              <div style={S.yearCardCol}><div style={S.yearCardLabel}>수입</div><div style={{...S.yearCardVal,color:"#15713a"}}>+{fmt(mi)}</div></div>
+              <div style={S.yearCardCol}><div style={S.yearCardLabel}>지출</div><div style={{...S.yearCardVal,color:"#b91c1c"}}>-{fmt(mx)}</div></div>
+              <div style={S.yearCardCol}><div style={S.yearCardLabel}>잔액</div><div style={{...S.yearCardVal,color:mi-mx>=0?"#1a6b3c":"#b91c1c"}}>{mi-mx>=0?"+":""}{fmt(mi-mx)}</div></div>
+            </div>
+            <div style={S.yearCardTags}>
+              {Object.entries(ic).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([c,a])=><span key={c} style={S.catTag}>{c} {fmt(a)}</span>)}
+              {Object.entries(ec).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([c,a])=><span key={c} style={{...S.catTag,background:"rgba(185,28,28,0.07)",color:"#b91c1c"}}>{c} {fmt(a)}</span>)}
+            </div>
+          </div>
+        ))}
+        <div style={{...S.yearCard,background:"#faf5ed",borderColor:"#c4a87a"}}>
+          <div style={S.yearCardHeader}><span style={{...S.yearCardMonth,color:"#5a4332"}}>합계</span></div>
+          <div style={S.yearCardRow}>
+            <div style={S.yearCardCol}><div style={S.yearCardLabel}>수입</div><div style={{...S.yearCardVal,color:"#15713a",fontWeight:800}}>+{fmt(yInc)}</div></div>
+            <div style={S.yearCardCol}><div style={S.yearCardLabel}>지출</div><div style={{...S.yearCardVal,color:"#b91c1c",fontWeight:800}}>-{fmt(yExp)}</div></div>
+            <div style={S.yearCardCol}><div style={S.yearCardLabel}>잔액</div><div style={{...S.yearCardVal,color:yInc-yExp>=0?"#1a6b3c":"#b91c1c",fontWeight:800}}>{yInc-yExp>=0?"+":""}{fmt(yInc-yExp)}</div></div>
+          </div>
+        </div>
+      </div>
+
+      {/* 데스크톱: 테이블 레이아웃 */}
+      <div className="desktop-only" style={S.tableWrap}><table style={S.table}><thead><tr><th style={S.th}>월</th><th style={{...S.th,textAlign:"right"}}>수입</th><th style={{...S.th,textAlign:"right"}}>지출</th><th style={{...S.th,textAlign:"right"}}>잔액</th><th style={S.th}>주요 수입</th><th style={S.th}>주요 지출</th></tr></thead><tbody>
+        {monthData.map(({m,mi,mx,ic,ec})=>(
+          <tr key={m} style={S.tr}><td style={{...S.td,fontWeight:700}}>{parseInt(m.split("-")[1])}월</td><td style={{...S.td,textAlign:"right",color:"#15713a",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>+{fmt(mi)}</td><td style={{...S.td,textAlign:"right",color:"#b91c1c",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>-{fmt(mx)}</td><td style={{...S.td,textAlign:"right",fontWeight:700,fontVariantNumeric:"tabular-nums",color:mi-mx>=0?"#1a6b3c":"#b91c1c"}}>{mi-mx>=0?"+":""}{fmt(mi-mx)}</td><td style={{...S.td,fontSize:12,color:"#6b5a48"}}>{Object.entries(ic).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([c,a])=>`${c}(${fmt(a)})`).join(", ")}</td><td style={{...S.td,fontSize:12,color:"#6b5a48"}}>{Object.entries(ec).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([c,a])=>`${c}(${fmt(a)})`).join(", ")}</td></tr>
+        ))}
         <tr style={{...S.tr,background:"#faf5ed"}}><td style={{...S.td,fontWeight:800,color:"#5a4332"}}>합계</td><td style={{...S.td,textAlign:"right",color:"#15713a",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>+{fmt(yInc)}</td><td style={{...S.td,textAlign:"right",color:"#b91c1c",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>-{fmt(yExp)}</td><td style={{...S.td,textAlign:"right",fontWeight:800,fontVariantNumeric:"tabular-nums",color:yInc-yExp>=0?"#1a6b3c":"#b91c1c"}}>{yInc-yExp>=0?"+":""}{fmt(yInc-yExp)}</td><td style={S.td}></td><td style={S.td}></td></tr>
       </tbody></table></div>
     </div>
@@ -601,6 +640,15 @@ const S={
   cardCategory:{fontSize:15,fontWeight:600,color:"#2c2418"},
   cardAmount:{fontSize:18,fontWeight:800,fontVariantNumeric:"tabular-nums"},
   cardMemo:{fontSize:12,color:"#8b7a65",marginTop:6,paddingTop:6,borderTop:"1px solid #ede5d8"},
+  // Year card mobile styles
+  yearCard:{background:"#fffdf8",border:"1px solid #d4c9b8",borderRadius:12,padding:"14px 16px",boxShadow:"0 1px 6px rgba(44,36,24,.06)"},
+  yearCardHeader:{marginBottom:10},
+  yearCardMonth:{fontSize:18,fontWeight:800,color:"#2c2418"},
+  yearCardRow:{display:"flex",justifyContent:"space-between",gap:8},
+  yearCardCol:{flex:1,textAlign:"center"},
+  yearCardLabel:{fontSize:11,color:"#8b7a65",fontWeight:600,marginBottom:2},
+  yearCardVal:{fontSize:15,fontWeight:700,fontVariantNumeric:"tabular-nums"},
+  yearCardTags:{display:"flex",flexWrap:"wrap",gap:4,marginTop:10,paddingTop:8,borderTop:"1px solid #ede5d8"},
   empty:{textAlign:"center",padding:"48px 20px",background:"#fffdf8",borderRadius:12,border:"1px dashed #d4c9b8"},
   emptyIcon:{fontSize:40,marginBottom:12,opacity:.4},emptyText:{fontSize:16,fontWeight:600,color:"#8b7a65",marginBottom:6},emptySub:{fontSize:13,color:"#b8a890"},
   modalOverlay:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(44,36,24,.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20},
